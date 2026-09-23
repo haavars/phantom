@@ -38,6 +38,19 @@ if qwen_service_dir = System.get_env("QWEN_SERVICE_DIR") do
   config :bilder, :qwen_service_dir, qwen_service_dir
 end
 
+# The synthetic friction-ridge service (see python_biometrics/), same options.
+if biometrics_service_url = System.get_env("BIOMETRICS_SERVICE_URL") do
+  config :bilder, :biometrics_service_url, biometrics_service_url
+end
+
+if System.get_env("BIOMETRICS_AUTOSTART") in ~w(false 0) do
+  config :bilder, :start_biometrics_service, false
+end
+
+if biometrics_service_dir = System.get_env("BIOMETRICS_SERVICE_DIR") do
+  config :bilder, :biometrics_service_dir, biometrics_service_dir
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :bilder, BilderWeb.Endpoint,

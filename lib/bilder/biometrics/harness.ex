@@ -1,25 +1,30 @@
-defmodule Bilder.Biometrics.FaceHarness do
+defmodule Bilder.Biometrics.Harness do
   @moduledoc """
-  Generates batches of synthetic face images with Qwen-Image-2.1 for evaluating
-  the prompts in `Bilder.Biometrics.FacePrompts`.
+  Generates batches of synthetic subjects: fictional people with any mix of face
+  images (Qwen-Image-2.1, see `Bilder.Biometrics.FacePrompts`) and
+  friction-ridge images (fingers, slaps, palms, tenprint card, see
+  `Bilder.Biometrics.FrictionRidge`).
 
-  For each subject it samples `Bilder.Biometrics.FaceAttributes`, renders the
-  anchor (frontal mugshot) from text, then renders every other requested shot
-  conditioned on the anchor. Output goes to a plain folder:
+  For each subject it samples `Bilder.Biometrics.FaceAttributes` from the
+  subject seed. Face shots start with the anchor (frontal mugshot) rendered
+  from text, and every other face shot is conditioned on it. Friction-ridge
+  shots are all derived from the subject seed, so every image of one subject
+  shows the same fingers and palms. Output goes to a plain folder:
 
       <out>/<run>/run.json
       <out>/<run>/index.html                 contact sheet, one row per subject
       <out>/<run>/subject_001/subject.json   attributes, prompts, seeds, timings
       <out>/<run>/subject_001/<shot>.png
+      <out>/<run>/subject_001/<shot>.json    friction-ridge ground truth (minutiae, patterns)
 
   Everything is derived from the run seed, so re-running with the same `:run`
   and `:seed` skips images that already exist and regenerates missing ones
   identically. Pass `force: true` to regenerate everything.
 
-  Run it with `mix biometrics.faces`, or from IEx with `run/1`.
+  Run it with `mix biometrics.generate`, or from IEx with `run/1`.
   """
 
-  alias Bilder.Biometrics.{FaceAttributes, FacePrompts, FaceRuns}
+  alias Bilder.Biometrics.{FaceAttributes, FacePrompts, FrictionRidge, Runs, Shots}
   alias Bilder.ImageGeneration
 
   @doc """
@@ -27,10 +32,11 @@ defmodule Bilder.Biometrics.FaceHarness do
 
     * `:subjects` - number of subjects, defaults to 3
     * `:seed` - run seed, defaults to a random one
-    * `:shots` - shot ids (see `FacePrompts.shots/0`), defaults to `FacePrompts.default_shots/0`;
-      the anchor shot is always included
+    * `:shots` - shot ids and group names (see `Bilder.Biometrics.Shots.expand/2`),
+      defaults to `["faces"]`; the face anchor is added whenever there are face shots
+    * `:captures` - captures per friction-ridge shot, defaults to 1
     * `:steps` - denoising steps, defaults to 40
-    * `:out` - output root, defaults to `Bilder.Biometrics.FaceRuns.root/0`
+    * `:out` - output root, defaults to `Bilder.Biometrics.Runs.root/0`
     * `:run` - run directory name, defaults to `<timestamp>-seed<seed>`
     * `:force` - regenerate images that already exist, defaults to false
     * `:on_progress` - 1-arity function called with `{:subject_started, %{id:, seed:, description:}}`,
@@ -40,16 +46,18 @@ defmodule Bilder.Biometrics.FaceHarness do
   `{:error, message}` for invalid options.
   """
   def run(opts \\ []) do
-    with {:ok, shots} <- resolve_shots(Keyword.get(opts, :shots, FacePrompts.default_shots())) do
+    with {:ok, shots} <-
+           resolve_shots(Keyword.get(opts, :shots, ["faces"]), Keyword.get(opts, :captures, 1)) do
       seed = Keyword.get_lazy(opts, :seed, &random_seed/0)
       run_name = Keyword.get_lazy(opts, :run, fn -> default_run_name(seed) end)
-      run_dir = Path.join(Keyword.get_lazy(opts, :out, &FaceRuns.root/0), run_name)
+      run_dir = Path.join(Keyword.get_lazy(opts, :out, &Runs.root/0), run_name)
       File.mkdir_p!(run_dir)
 
       config = %{
         run: run_name,
         seed: seed,
         shots: shots,
+        captures: Keyword.get(opts, :captures, 1),
         steps: Keyword.get(opts, :steps, 40),
         prompt_version: FacePrompts.version(),
         subjects: Keyword.get(opts, :subjects, 3)
@@ -74,19 +82,14 @@ defmodule Bilder.Biometrics.FaceHarness do
   end
 
   @doc """
-  Returns the shots a run with `shots` will render, in order: the anchor first,
-  then the rest, deduplicated. `{:error, message}` for unknown shot ids.
+  The shot ids a run with `shots` (ids and group names, see
+  `Bilder.Biometrics.Shots.expand/2`) and `captures` renders, in order.
+  `{:error, message}` for unknown names.
   """
-  def resolve_shots(shots) do
-    shots = Enum.uniq([FacePrompts.anchor_shot() | shots])
-
-    case Enum.reject(shots, &FacePrompts.spec/1) do
-      [] ->
-        {:ok, shots}
-
-      unknown ->
-        {:error,
-         "Unknown shots: #{Enum.join(unknown, ", ")}. Known: #{Enum.join(FacePrompts.shots(), ", ")}"}
+  def resolve_shots(shots, captures \\ 1) do
+    case Shots.expand(shots, captures) do
+      {:ok, []} -> {:error, "Pick at least one shot."}
+      result -> result
     end
   end
 
@@ -128,6 +131,13 @@ defmodule Bilder.Biometrics.FaceHarness do
   end
 
   defp run_shot(shot, attrs, subject_seed, anchor, dir, steps, force?) do
+    case Shots.spec(shot) do
+      %{modality: :face} -> run_face_shot(shot, attrs, subject_seed, anchor, dir, steps, force?)
+      %{modality: :ridge} = spec -> run_ridge_shot(spec, subject_seed, dir, force?)
+    end
+  end
+
+  defp run_face_shot(shot, attrs, subject_seed, anchor, dir, steps, force?) do
     spec = FacePrompts.spec(shot)
     {width, height} = spec.size
     file = shot <> ".png"
@@ -142,6 +152,10 @@ defmodule Bilder.Biometrics.FaceHarness do
       seed: derive_seed(subject_seed, shot),
       reference: if(spec.anchor?, do: nil, else: FacePrompts.anchor_shot() <> ".png"),
       prompt: FacePrompts.prompt(shot, attrs),
+      # Same keys as friction-ridge records, so every shot record has one shape.
+      capture: 0,
+      meta: nil,
+      ground_truth: nil,
       duration_ms: nil,
       error: nil
     }
@@ -183,6 +197,81 @@ defmodule Bilder.Biometrics.FaceHarness do
     end
   end
 
+  # Fingers, slaps, palms and the tenprint card all come from the subject seed,
+  # so every image of one subject shows the same fingers and palms.
+  defp run_ridge_shot(spec, subject_seed, dir, force?) do
+    {width, height} = spec.size
+    file = spec.id <> ".png"
+    path = Path.join(dir, file)
+    ground_truth = spec.id <> ".json"
+
+    record = %{
+      shot: spec.id,
+      pos: spec.code,
+      file: file,
+      width: width,
+      height: height,
+      seed: subject_seed,
+      capture: spec.capture,
+      reference: nil,
+      prompt: nil,
+      meta: nil,
+      ground_truth: nil,
+      duration_ms: nil,
+      error: nil
+    }
+
+    if File.exists?(path) and not force? do
+      Map.merge(
+        record,
+        %{status: "existing"} |> Map.merge(existing_ground_truth(dir, ground_truth))
+      )
+    else
+      started = System.monotonic_time(:millisecond)
+
+      result =
+        FrictionRidge.render(spec.kind, spec.numeric_code, subject_seed, spec.capture,
+          label: Path.basename(dir)
+        )
+
+      duration_ms = System.monotonic_time(:millisecond) - started
+
+      case result do
+        {:ok, %{image: png, meta: meta, generator: generator}} ->
+          File.write!(path, png)
+          write_json(Path.join(dir, ground_truth), Map.put(meta, "generator", generator))
+
+          Map.merge(record, %{
+            status: "ok",
+            duration_ms: duration_ms,
+            meta: summarize(meta),
+            ground_truth: ground_truth
+          })
+
+        {:error, message} ->
+          Map.merge(record, %{status: "error", duration_ms: duration_ms, error: message})
+      end
+    end
+  end
+
+  defp existing_ground_truth(dir, file) do
+    case File.read(Path.join(dir, file)) do
+      {:ok, json} -> %{meta: summarize(Jason.decode!(json)), ground_truth: file}
+      {:error, _reason} -> %{}
+    end
+  end
+
+  # The per-shot record keeps the small facts (pattern classes, counts); full
+  # minutiae lists stay in the ground-truth JSON next to the image.
+  defp summarize(meta) do
+    meta
+    |> Map.drop(["minutiae", "generator"])
+    |> Map.update("fingers", nil, fn fingers ->
+      Enum.map(fingers, &Map.take(&1, ["fgp", "pattern"]))
+    end)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
   # Deterministic 31-bit seed derived from a parent seed and a key.
   defp derive_seed(parent, key), do: :erlang.phash2({parent, key}, 2_147_483_647)
 
@@ -213,7 +302,7 @@ defmodule Bilder.Biometrics.FaceHarness do
                 do: ~s(<a href="#{src}"><img src="#{src}" loading="lazy"></a>),
                 else: ~s(<div class="missing">#{escape(record.error || record.status)}</div>)
 
-            ~s(<td title="#{escape(record.prompt)}">#{image}</td>)
+            ~s(<td title="#{escape(record.prompt || Shots.label(shot))}">#{image}</td>)
           end)
 
         """
@@ -232,7 +321,7 @@ defmodule Bilder.Biometrics.FaceHarness do
     <html lang="en">
     <head>
     <meta charset="utf-8">
-    <title>Faces #{escape(config.run)}</title>
+    <title>Biometrics #{escape(config.run)}</title>
     <style>
       body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; background: #f4f4f5; color: #18181b; }
       table { border-collapse: collapse; }

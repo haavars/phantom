@@ -46,3 +46,7 @@ npm-debug.log
 
 # Synthetic biometrics output (face harness runs etc.)
 /data/
+/python_biometrics/.venv/
+/python_biometrics/__pycache__/
+/python_biometrics/**/__pycache__/
+/python_biometrics/.pytest_cache/

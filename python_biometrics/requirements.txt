@@ -1,0 +1,11 @@
+# CPU only - no GPU or model weights needed.
+numpy>=1.26
+scipy>=1.11
+opencv-python-headless>=4.9
+scikit-image>=0.22
+pillow>=10.1
+fastapi
+uvicorn[standard]
+pydantic>=2
+pytest
+httpx

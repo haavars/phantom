@@ -14,9 +14,9 @@ defmodule Bilder.Application do
         {DNSCluster, query: Application.get_env(:bilder, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Bilder.PubSub},
         {Task.Supervisor, name: Bilder.Biometrics.TaskSupervisor},
-        Bilder.Biometrics.FaceRunner
+        Bilder.Biometrics.Runner
       ] ++
-        qwen_service_children() ++
+        python_services() ++
         [
           # Start to serve requests, typically the last entry
           BilderWeb.Endpoint
@@ -36,11 +36,24 @@ defmodule Bilder.Application do
     :ok
   end
 
-  defp qwen_service_children do
-    if Application.get_env(:bilder, :start_qwen_service, true) do
-      [Supervisor.child_spec({Bilder.QwenService, []}, shutdown: 10_000)]
-    else
-      []
-    end
+  # The local Python services, unless disabled (e.g. because they run on
+  # another machine, or in tests).
+  defp python_services do
+    [
+      {:start_qwen_service, Bilder.QwenService, "qwen-image", :qwen_service_dir,
+       :qwen_service_url},
+      {:start_biometrics_service, Bilder.BiometricsService, "biometrics", :biometrics_service_dir,
+       :biometrics_service_url}
+    ]
+    |> Enum.filter(fn {enabled_key, _name, _label, _dir_key, _url_key} ->
+      Application.get_env(:bilder, enabled_key, true)
+    end)
+    |> Enum.map(fn {_enabled_key, name, label, dir_key, url_key} ->
+      {Bilder.PythonService,
+       name: name,
+       label: label,
+       dir: Application.fetch_env!(:bilder, dir_key),
+       url: Application.fetch_env!(:bilder, url_key)}
+    end)
   end
 end

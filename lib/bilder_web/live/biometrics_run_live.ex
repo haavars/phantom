@@ -1,24 +1,25 @@
-defmodule BilderWeb.FaceRunLive do
+defmodule BilderWeb.BiometricsRunLive do
   @moduledoc """
-  One synthetic-face run: every subject with its shots, filled in live while the
-  run is active, plus a detail view (`?subject=...&shot=...`) with the full image,
-  prompt and seed. Incomplete or partly failed runs can be resumed.
+  One synthetic-biometrics run: every subject with its face and friction-ridge
+  shots, filled in live while the run is active, plus a detail view
+  (`?subject=...&shot=...`) with the full image and its prompt or ground truth.
+  Incomplete or partly failed runs can be resumed.
   """
 
   use BilderWeb, :live_view
 
-  import BilderWeb.FaceComponents
+  import BilderWeb.BiometricsComponents
 
-  alias Bilder.Biometrics.{FacePrompts, FaceRunner, FaceRuns}
+  alias Bilder.Biometrics.{FacePrompts, FrictionRidge, Runner, Runs, Shots}
   alias Bilder.ImageGeneration
 
   @terminal [:finished, :cancelled, :failed]
 
   @impl true
   def mount(%{"run" => name}, _session, socket) do
-    if connected?(socket), do: FaceRunner.subscribe()
+    if connected?(socket), do: Runner.subscribe()
 
-    progress = FaceRunner.current()
+    progress = Runner.current()
     active = if match?(%{run: ^name}, progress), do: progress
 
     case load_run(name, active) do
@@ -39,7 +40,7 @@ defmodule BilderWeb.FaceRunLive do
         {:ok,
          socket
          |> put_flash(:error, "Run #{name} not found.")
-         |> push_navigate(to: ~p"/faces")}
+         |> push_navigate(to: ~p"/biometrics")}
     end
   end
 
@@ -47,7 +48,7 @@ defmodule BilderWeb.FaceRunLive do
   # subject.json yet). Before the harness has written run.json, fall back to the
   # runner's snapshot.
   defp load_run(name, active) do
-    case FaceRuns.get_run(name) do
+    case Runs.get_run(name) do
       {:ok, run} ->
         {subjects, run} = Map.pop(run, :subjects_list)
         {:ok, run, subjects ++ List.wrap(active && active.subject)}
@@ -76,6 +77,17 @@ defmodule BilderWeb.FaceRunLive do
     {:noreply, assign(socket, :selected, select(socket, params))}
   end
 
+  # Live records (from the runner) and records written by older versions may
+  # lack keys that records read back from disk have.
+  @record_defaults %{
+    prompt: nil,
+    reference: nil,
+    capture: 0,
+    meta: nil,
+    ground_truth: nil,
+    duration_ms: nil
+  }
+
   defp select(socket, %{"subject" => subject_id, "shot" => shot}) do
     with {:ok, subject} <- find_subject(socket, subject_id),
          %{status: status} = record when status in ["ok", "existing"] <-
@@ -87,7 +99,7 @@ defmodule BilderWeb.FaceRunLive do
 
       %{
         subject: subject,
-        record: record,
+        record: Map.merge(@record_defaults, record),
         prev: if(index > 0, do: Enum.at(rendered, index - 1)),
         next: Enum.at(rendered, index + 1)
       }
@@ -101,7 +113,7 @@ defmodule BilderWeb.FaceRunLive do
   defp find_subject(socket, subject_id) do
     case socket.assigns.progress do
       %{subject: %{id: ^subject_id} = subject} -> {:ok, subject}
-      _ -> FaceRuns.get_subject(socket.assigns.run.name, subject_id)
+      _ -> Runs.get_subject(socket.assigns.run.name, subject_id)
     end
   end
 
@@ -113,8 +125,8 @@ defmodule BilderWeb.FaceRunLive do
       [run: run.name, seed: run.seed, shots: run.shots, steps: run.steps, subjects: run.subjects]
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
-    with :ready <- ImageGeneration.health(),
-         {:ok, _run} <- FaceRunner.start_run(opts) do
+    with :ok <- services_ready(run.shots),
+         {:ok, _run} <- Runner.start_run(opts) do
       {:noreply, socket}
     else
       {:error, :busy} ->
@@ -122,14 +134,11 @@ defmodule BilderWeb.FaceRunLive do
 
       {:error, message} when is_binary(message) ->
         {:noreply, put_flash(socket, :error, message)}
-
-      _status ->
-        {:noreply, put_flash(socket, :error, "The Qwen-Image-2.1 service isn't ready.")}
     end
   end
 
   def handle_event("cancel", _params, socket) do
-    :ok = FaceRunner.cancel()
+    :ok = Runner.cancel()
     {:noreply, socket}
   end
 
@@ -151,7 +160,7 @@ defmodule BilderWeb.FaceRunLive do
         {:noreply, socket}
 
       :close ->
-        {:noreply, push_patch(socket, to: ~p"/faces/#{socket.assigns.run.name}")}
+        {:noreply, push_patch(socket, to: ~p"/biometrics/#{socket.assigns.run.name}")}
 
       shot ->
         {:noreply,
@@ -163,7 +172,7 @@ defmodule BilderWeb.FaceRunLive do
 
   @impl true
   def handle_info(
-        {:face_run, event, %{run: name} = progress},
+        {:biometrics_run, event, %{run: name} = progress},
         %{assigns: %{run: %{name: name}}} = socket
       ) do
     socket =
@@ -194,7 +203,7 @@ defmodule BilderWeb.FaceRunLive do
   end
 
   # Another run started or stopped: only matters for whether Resume is possible.
-  def handle_info({:face_run, event, _progress}, socket) do
+  def handle_info({:biometrics_run, event, _progress}, socket) do
     {:noreply, assign(socket, :busy?, event not in @terminal)}
   end
 
@@ -231,8 +240,43 @@ defmodule BilderWeb.FaceRunLive do
   defp active_subject_id(%{subject: %{id: id}}), do: id
   defp active_subject_id(_progress), do: nil
 
+  defp services_ready(shots) do
+    cond do
+      Enum.any?(shots, &Shots.face?/1) and ImageGeneration.health() != :ready ->
+        {:error, "The Qwen-Image-2.1 service isn't ready."}
+
+      Enum.any?(shots, &Shots.ridge?/1) and FrictionRidge.health() != :ready ->
+        {:error, "The friction-ridge service isn't ready."}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Tiles are grouped into sections: Face, Rolled fingers, Slaps, ... with a
+  # section per extra capture.
+  defp sections(shots) do
+    shots
+    |> Enum.chunk_by(fn shot ->
+      spec = Shots.spec(shot) || %{group: "other", capture: 0}
+      {spec.group, spec.capture}
+    end)
+    |> Enum.map(fn [first | _] = group_shots ->
+      spec = Shots.spec(first) || %{group: "other", capture: 0}
+      title = Shots.group_name(spec.group)
+      title = if spec.capture > 0, do: "#{title} · capture #{spec.capture + 1}", else: title
+      {"#{spec.group}-#{spec.capture}", title, group_shots}
+    end)
+  end
+
+  defp singular_points(meta) do
+    cores = length(meta["cores"] || [])
+    deltas = length(meta["deltas"] || [])
+    "#{cores} core#{if cores != 1, do: "s"}, #{deltas} delta#{if deltas != 1, do: "s"}"
+  end
+
   defp shot_path(run, subject_id, shot),
-    do: ~p"/faces/#{run}?#{[subject: subject_id, shot: shot]}"
+    do: ~p"/biometrics/#{run}?#{[subject: subject_id, shot: shot]}"
 
   @impl true
   def render(assigns) do
@@ -241,7 +285,7 @@ defmodule BilderWeb.FaceRunLive do
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div class="min-w-0">
           <.link
-            navigate={~p"/faces"}
+            navigate={~p"/biometrics"}
             id="back-to-runs"
             class="text-sm text-base-content/60 transition hover:text-base-content"
           >
@@ -330,19 +374,28 @@ defmodule BilderWeb.FaceRunLive do
               {subject.description}
             </p>
           </header>
-          <div class="-mx-1 mt-3 flex gap-3 overflow-x-auto px-1 pb-1">
-            <.shot_tile
-              :for={shot <- @run.shots}
-              run={@run.name}
-              subject={subject}
-              shot={shot}
-              active?={subject.id == active_subject_id(@progress)}
-              rendering?={
-                subject.id == active_subject_id(@progress) and
-                  shot == next_shot(@run.shots, subject)
-              }
-            />
-          </div>
+          <section
+            :for={{key, title, shots} <- sections(@run.shots)}
+            class="mt-4"
+            id={"#{subject.id}-#{key}"}
+          >
+            <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-base-content/50">
+              {title}
+            </h3>
+            <div class="-mx-1 flex items-end gap-3 overflow-x-auto px-1 pb-1">
+              <.shot_tile
+                :for={shot <- shots}
+                run={@run.name}
+                subject={subject}
+                shot={shot}
+                active?={subject.id == active_subject_id(@progress)}
+                rendering?={
+                  subject.id == active_subject_id(@progress) and
+                    shot == next_shot(@run.shots, subject)
+                }
+              />
+            </div>
+          </section>
         </article>
       </div>
 
@@ -355,7 +408,7 @@ defmodule BilderWeb.FaceRunLive do
         aria-modal="true"
         aria-label={"#{shot_label(@selected.record.shot)} of #{@selected.subject.id}"}
       >
-        <.link patch={~p"/faces/#{@run.name}"} class="absolute inset-0" aria-label="Close"></.link>
+        <.link patch={~p"/biometrics/#{@run.name}"} class="absolute inset-0" aria-label="Close"></.link>
         <div class="relative grid max-h-full w-full max-w-6xl overflow-hidden rounded-2xl bg-base-100 shadow-2xl lg:grid-cols-[minmax(0,1fr)_360px]">
           <div class="flex min-h-0 items-center justify-center bg-neutral-950">
             <img
@@ -370,11 +423,15 @@ defmodule BilderWeb.FaceRunLive do
                 <p class="font-mono text-xs text-base-content/50">{@selected.subject.id}</p>
                 <h2 class="mt-0.5 flex items-center gap-2 text-lg font-semibold">
                   {shot_label(@selected.record.shot)}
-                  <.pos_badge pos={@selected.record.pos} />
+                  <.pos_badge
+                    :if={@selected.record.pos}
+                    pos={@selected.record.pos}
+                    shot={@selected.record.shot}
+                  />
                 </h2>
               </div>
               <.link
-                patch={~p"/faces/#{@run.name}"}
+                patch={~p"/biometrics/#{@run.name}"}
                 id="close-detail"
                 class="rounded-lg p-1.5 text-base-content/60 transition hover:bg-base-200 hover:text-base-content"
                 aria-label="Close"
@@ -390,18 +447,70 @@ defmodule BilderWeb.FaceRunLive do
               <dd class="font-mono">{@selected.record.seed}</dd>
               <dt class="text-base-content/50">Render time</dt>
               <dd>{format_duration(@selected.record.duration_ms)}</dd>
-              <dt class="text-base-content/50">Reference</dt>
-              <dd>
-                {if @selected.record.reference, do: "frontal mugshot", else: "none (text only)"}
-              </dd>
+              <%= if @selected.record.prompt do %>
+                <dt class="text-base-content/50">Reference</dt>
+                <dd>
+                  {if @selected.record.reference, do: "frontal mugshot", else: "none (text only)"}
+                </dd>
+              <% else %>
+                <dt class="text-base-content/50">Resolution</dt>
+                <dd>500 ppi, 8-bit grey</dd>
+                <dt class="text-base-content/50">Capture</dt>
+                <dd>{(@selected.record.capture || 0) + 1}</dd>
+              <% end %>
             </dl>
+
+            <div :if={@selected.record.meta} id="ridge-meta" class="space-y-2 text-xs">
+              <h3 class="font-medium text-base-content/50">Ground truth</h3>
+              <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
+                <%= if pattern = @selected.record.meta["pattern"] do %>
+                  <dt class="text-base-content/50">Pattern</dt>
+                  <dd class="capitalize">{pattern_name(pattern)}</dd>
+                  <dt class="text-base-content/50">Singular points</dt>
+                  <dd>{singular_points(@selected.record.meta)}</dd>
+                <% end %>
+                <%= if fingers = @selected.record.meta["fingers"] do %>
+                  <dt class="text-base-content/50">Fingers</dt>
+                  <dd>
+                    <span :for={finger <- fingers} class="block">
+                      {shot_label("rolled_" <> String.pad_leading(to_string(finger["fgp"]), 2, "0"))}: {pattern_name(
+                        finger["pattern"]
+                      )}
+                    </span>
+                  </dd>
+                <% end %>
+                <%= if count = @selected.record.meta["minutiae_count"] do %>
+                  <dt class="text-base-content/50">Minutiae</dt>
+                  <dd>{count}</dd>
+                <% end %>
+                <%= if triradii = @selected.record.meta["triradii"] do %>
+                  <dt class="text-base-content/50">Triradii in view</dt>
+                  <dd>{triradii |> Map.keys() |> Enum.sort() |> Enum.join(", ")}</dd>
+                  <dt class="text-base-content/50">Patterns</dt>
+                  <dd>
+                    {Enum.map_join(@selected.record.meta["patterns"] || [], ", ", &pattern_name/1)
+                    |> then(&if(&1 == "", do: "none", else: &1))}
+                  </dd>
+                <% end %>
+              </dl>
+              <a
+                :if={@selected.record.ground_truth}
+                id="ground-truth-link"
+                href={image_url(@run.name, @selected.subject.id, @selected.record.ground_truth)}
+                target="_blank"
+                rel="noopener"
+                class="inline-block text-primary underline-offset-4 hover:underline"
+              >
+                Ground-truth JSON (minutiae, singular points)
+              </a>
+            </div>
 
             <div>
               <h3 class="mb-1 text-xs font-medium text-base-content/50">Person</h3>
               <p class="text-base-content/80">{@selected.subject.description}</p>
             </div>
 
-            <div>
+            <div :if={@selected.record.prompt}>
               <h3 class="mb-1 text-xs font-medium text-base-content/50">Prompt</h3>
               <p
                 id="shot-prompt"

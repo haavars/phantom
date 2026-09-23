@@ -23,7 +23,7 @@ your own GPU via a small local Python service that this app starts and manages f
    mix phx.server
    ```
 
-   `mix phx.server` also starts `python_inference/server.py` for you (see `Bilder.QwenService`) and stops it
+   `mix phx.server` also starts `python_inference/server.py` for you (see `Bilder.PythonService`) and stops it
    on shutdown. Visit [`localhost:4000`](http://localhost:4000) — the page shows "starting up" while the
    model loads (first run downloads it, which takes a while), then enter a prompt and hit Generate.
 
@@ -34,24 +34,29 @@ also try to start its own copy, and point it at the other one:
 QWEN_AUTOSTART=false QWEN_SERVICE_URL=http://your-host:8000 mix phx.server
 ```
 
-## Synthetic face images
+## Synthetic biometrics
 
-A harness generates synthetic mugshots, ICAO passport portraits and mated probe images of
-fictional people for ABIS testing. Each person gets a frontal mugshot generated from a seeded text
-description, and every other shot is generated from that frontal image to keep the identity consistent.
+Bilder also generates synthetic subjects, fictional people, for ABIS testing:
 
-Start and browse runs at [`localhost:4000/faces`](http://localhost:4000/faces), or from the command line:
+- **Faces:** mugshots, ICAO portraits and mated probe images, from Qwen-Image-2.1.
+- **Friction ridges:** rolled fingerprints, slaps, full and writer's palms, and an FD-249 style tenprint card,
+  from a procedural CPU generator in [`python_biometrics/`](python_biometrics/README.md). Run its one-time
+  setup first: `cd python_biometrics && ./setup.sh`.
+
+All images of one subject show the same person, fingers and palms, and extra captures give mated pairs.
+
+Start and browse runs at [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or from the command
+line:
 
 ```bash
-mix biometrics.faces --subjects 5 --seed 42   # needs `mix phx.server` running for the Qwen service
+mix biometrics.generate --subjects 5 --shots faces,rolled,slaps,palms,card --captures 2
 ```
 
-Images, metadata and an `index.html` contact sheet are written to `data/synthetic/faces/<run>/`. The same seed
-reproduces the same people, and reusing `--run` resumes a run. The output is synthetic test data only; don't use
-it as evidence of matching accuracy or send it to live systems.
+Images, ground-truth JSON and an `index.html` contact sheet are written to `data/synthetic/biometrics/<run>/`. The
+same seed reproduces the same subjects, and reusing `--run` resumes a run. The output is synthetic test data
+only; don't use it as evidence of matching accuracy or send it to live systems.
 
-More detail: [docs/synthetic-faces.md](docs/synthetic-faces.md). The wider plan, which also covers
-fingerprints, palms, a LiveView and S3 storage, is in
+More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in
 [docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md).
 
 Ready to run in production? Please [check our deployment guides](https://phoenix.hexdocs.pm/deployment.html).

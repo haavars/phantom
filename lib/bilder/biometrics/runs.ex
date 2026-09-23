@@ -1,8 +1,8 @@
-defmodule Bilder.Biometrics.FaceRuns do
+defmodule Bilder.Biometrics.Runs do
   @moduledoc """
-  Reads `Bilder.Biometrics.FaceHarness` runs back from the output folder.
+  Reads `Bilder.Biometrics.Harness` runs back from the output folder.
 
-  The folder is the source of truth, so runs started from `mix biometrics.faces`
+  The folder is the source of truth, so runs started from `mix biometrics.generate`
   and from the web UI show up alike. Subjects and shots come back as maps with
   the same keys as the harness's in-memory records (`:id`, `:seed`,
   `:description`, `:shots`; each shot `:shot`, `:pos`, `:file`, `:status`, ...),
@@ -11,8 +11,8 @@ defmodule Bilder.Biometrics.FaceRuns do
 
   @name_format ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/
 
-  @doc "The output root, `config :bilder, :face_output_dir`."
-  def root, do: Application.get_env(:bilder, :face_output_dir, "data/synthetic/faces")
+  @doc "The output root, `config :bilder, :biometrics_output_dir`."
+  def root, do: Application.get_env(:bilder, :biometrics_output_dir, "data/synthetic/biometrics")
 
   @doc "True for names that are safe as a single path segment (run, subject or file names)."
   def valid_name?(name) when is_binary(name), do: name =~ @name_format
@@ -58,6 +58,7 @@ defmodule Bilder.Biometrics.FaceRuns do
          seed: config["seed"],
          shots: config["shots"] || [],
          steps: config["steps"],
+         captures: config["captures"] || 1,
          prompt_version: config["prompt_version"],
          subjects: config["subjects"] || 0,
          completed: length(subject_ids),
@@ -152,6 +153,9 @@ defmodule Bilder.Biometrics.FaceRuns do
       seed: shot["seed"],
       reference: shot["reference"],
       prompt: shot["prompt"],
+      capture: shot["capture"] || 0,
+      meta: shot["meta"],
+      ground_truth: shot["ground_truth"],
       status: shot["status"],
       duration_ms: shot["duration_ms"],
       error: shot["error"]
@@ -161,8 +165,12 @@ defmodule Bilder.Biometrics.FaceRuns do
   defp cover(_dir, []), do: nil
 
   defp cover(dir, [first | _]) do
-    file = "mugshot_frontal.png"
-    if File.exists?(Path.join([dir, first, file])), do: {first, file}
+    Enum.find_value(
+      ["mugshot_frontal.png", "rolled_02.png", "rolled_01.png", "slap_13.png"],
+      fn file ->
+        if File.exists?(Path.join([dir, first, file])), do: {first, file}
+      end
+    )
   end
 
   # index.html is rewritten after every subject, so it tracks the last activity.

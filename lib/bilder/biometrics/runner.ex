@@ -1,11 +1,11 @@
-defmodule Bilder.Biometrics.FaceRunner do
+defmodule Bilder.Biometrics.Runner do
   @moduledoc """
-  Runs one `Bilder.Biometrics.FaceHarness` batch at a time in the background and
+  Runs one `Bilder.Biometrics.Harness` batch at a time in the background and
   broadcasts its progress, so LiveViews can follow a run and the run carries on
   when they go away. One at a time because the Qwen service renders one image at
-  a time anyway.
+  a time anyway, and the friction-ridge service already uses every CPU core.
 
-  Subscribers to `topic/0` receive `{:face_run, event, progress}` where `event` is
+  Subscribers to `topic/0` receive `{:biometrics_run, event, progress}` where `event` is
   `:started`, `:progress` (a subject started or a shot finished), `:subject_done`,
   `:finished`, `:cancelled` or `:failed`, and `progress` is a snapshot:
 
@@ -17,9 +17,9 @@ defmodule Bilder.Biometrics.FaceRunner do
 
   use GenServer
 
-  alias Bilder.Biometrics.FaceHarness
+  alias Bilder.Biometrics.Harness
 
-  @topic "faces:runs"
+  @topic "biometrics:runs"
 
   def topic, do: @topic
   def subscribe, do: Phoenix.PubSub.subscribe(Bilder.PubSub, @topic)
@@ -27,7 +27,7 @@ defmodule Bilder.Biometrics.FaceRunner do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
-  Starts a run with `FaceHarness.run/1` options. Resolves the seed and run name up
+  Starts a run with `Harness.run/1` options. Resolves the seed and run name up
   front so the caller can link to the run right away.
 
   Returns `{:ok, run_name}`, `{:error, :busy}` while another run is active, or
@@ -50,12 +50,13 @@ defmodule Bilder.Biometrics.FaceRunner do
   end
 
   def handle_call({:start_run, opts}, _from, state) do
-    case FaceHarness.resolve_shots(
-           Keyword.get(opts, :shots, Bilder.Biometrics.FacePrompts.default_shots())
+    case Harness.resolve_shots(
+           Keyword.get(opts, :shots, ["faces"]),
+           Keyword.get(opts, :captures, 1)
          ) do
       {:ok, shots} ->
-        seed = Keyword.get_lazy(opts, :seed, &FaceHarness.random_seed/0)
-        run = Keyword.get_lazy(opts, :run, fn -> FaceHarness.default_run_name(seed) end)
+        seed = Keyword.get_lazy(opts, :seed, &Harness.random_seed/0)
+        run = Keyword.get_lazy(opts, :run, fn -> Harness.default_run_name(seed) end)
         runner = self()
 
         harness_opts =
@@ -68,7 +69,7 @@ defmodule Bilder.Biometrics.FaceRunner do
 
         task =
           Task.Supervisor.async_nolink(Bilder.Biometrics.TaskSupervisor, fn ->
-            FaceHarness.run(harness_opts)
+            Harness.run(harness_opts)
           end)
 
         progress = %{
@@ -149,6 +150,6 @@ defmodule Bilder.Biometrics.FaceRunner do
   end
 
   defp broadcast(event, progress) do
-    Phoenix.PubSub.broadcast(Bilder.PubSub, @topic, {:face_run, event, progress})
+    Phoenix.PubSub.broadcast(Bilder.PubSub, @topic, {:biometrics_run, event, progress})
   end
 end

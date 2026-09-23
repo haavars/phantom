@@ -1,10 +1,14 @@
-defmodule Bilder.Biometrics.FaceRunRequest do
-  @moduledoc "Validates a request to start a face-harness run from the web UI."
+defmodule Bilder.Biometrics.RunRequest do
+  @moduledoc """
+  Validates a request to start a run from the web UI. `shots` holds face shot
+  ids and friction-ridge group names (`"rolled"`, `"slaps"`, `"palms"`,
+  `"card"`), see `Bilder.Biometrics.Shots.expand/2`.
+  """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Bilder.Biometrics.{FacePrompts, FaceRuns}
+  alias Bilder.Biometrics.{FacePrompts, Runs, Shots}
 
   @max_subjects 100
   @steps [20, 30, 40, 50]
@@ -14,7 +18,11 @@ defmodule Bilder.Biometrics.FaceRunRequest do
     field :subjects, :integer, default: 3
     field :seed, :integer
     field :steps, :integer, default: 40
-    field :shots, {:array, :string}, default: FacePrompts.default_shots()
+
+    field :shots, {:array, :string},
+      default: FacePrompts.default_shots() ++ ~w(rolled slaps palms card)
+
+    field :captures, :integer, default: 1
     field :run, :string
   end
 
@@ -23,7 +31,7 @@ defmodule Bilder.Biometrics.FaceRunRequest do
 
   def changeset(request \\ %__MODULE__{}, attrs) do
     request
-    |> cast(attrs, [:subjects, :seed, :steps, :shots, :run])
+    |> cast(attrs, [:subjects, :seed, :steps, :shots, :captures, :run])
     # The form sends an empty value so unticking every box still submits `shots`.
     |> update_change(:shots, fn shots -> Enum.reject(shots, &(&1 == "")) end)
     |> validate_required([:subjects, :steps])
@@ -33,13 +41,21 @@ defmodule Bilder.Biometrics.FaceRunRequest do
     )
     |> validate_number(:seed, greater_than_or_equal_to: 0, less_than: 2_147_483_647)
     |> validate_inclusion(:steps, @steps)
-    |> validate_subset(:shots, FacePrompts.shots())
+    |> validate_subset(
+      :shots,
+      FacePrompts.shots() ++ Enum.map(Shots.ridge_groups(), &elem(&1, 0))
+    )
+    |> validate_length(:shots, min: 1, message: "pick at least one shot")
+    |> validate_number(:captures,
+      greater_than_or_equal_to: 1,
+      less_than_or_equal_to: Shots.max_captures()
+    )
     |> validate_length(:run, max: 80)
     |> validate_format(:run, ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/,
       message: "use letters, digits, dots, dashes and underscores"
     )
     |> validate_change(:run, fn :run, run ->
-      if FaceRuns.exists?(run), do: [run: "already exists"], else: []
+      if Runs.exists?(run), do: [run: "already exists"], else: []
     end)
   end
 
@@ -49,6 +65,7 @@ defmodule Bilder.Biometrics.FaceRunRequest do
       subjects: request.subjects,
       steps: request.steps,
       shots: request.shots,
+      captures: request.captures,
       seed: request.seed,
       run: request.run
     ]

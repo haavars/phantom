@@ -22,9 +22,16 @@ config :bilder, :qwen_service_url, "http://localhost:8000"
 config :bilder, :start_qwen_service, true
 config :bilder, :qwen_service_dir, Path.expand("../python_inference", __DIR__)
 
-# Where Bilder.Biometrics.FaceHarness writes synthetic face runs (and where the
-# /faces pages read them from). Gitignored.
-config :bilder, :face_output_dir, Path.expand("../data/synthetic/faces", __DIR__)
+# Base URL of the synthetic friction-ridge service (see python_biometrics/), which
+# the app also starts and stops itself. Overridable with BIOMETRICS_SERVICE_URL,
+# BIOMETRICS_AUTOSTART=false and BIOMETRICS_SERVICE_DIR, see config/runtime.exs.
+config :bilder, :biometrics_service_url, "http://localhost:8001"
+config :bilder, :start_biometrics_service, true
+config :bilder, :biometrics_service_dir, Path.expand("../python_biometrics", __DIR__)
+
+# Where Bilder.Biometrics.Harness writes synthetic face runs (and where the
+# /biometrics pages read them from). Gitignored.
+config :bilder, :biometrics_output_dir, Path.expand("../data/synthetic/biometrics", __DIR__)
 
 # Configure the endpoint
 config :bilder, BilderWeb.Endpoint,

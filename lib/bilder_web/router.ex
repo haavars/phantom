@@ -18,10 +18,10 @@ defmodule BilderWeb.Router do
     pipe_through :browser
 
     live "/", GenerateLive, :index
-    live "/faces", FacesLive, :index
-    live "/faces/:run", FaceRunLive, :show
+    live "/biometrics", BiometricsLive, :index
+    live "/biometrics/:run", BiometricsRunLive, :show
 
-    get "/face-files/:run/:subject/:file", FaceFileController, :show
+    get "/biometrics-files/:run/:subject/:file", BiometricsFileController, :show
   end
 
   # Other scopes may use custom stacks.

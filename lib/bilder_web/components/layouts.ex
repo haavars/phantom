@@ -51,11 +51,11 @@ defmodule BilderWeb.Layouts do
             Images
           </.link>
           <.link
-            navigate={~p"/faces"}
-            id="nav-faces"
+            navigate={~p"/biometrics"}
+            id="nav-biometrics"
             class="rounded-md px-3 py-1.5 text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
           >
-            Faces
+            Biometrics
           </.link>
         </nav>
         <div class="ml-auto"><.theme_toggle /></div>

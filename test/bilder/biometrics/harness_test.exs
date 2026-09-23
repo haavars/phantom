@@ -1,7 +1,9 @@
-defmodule Bilder.Biometrics.FaceHarnessTest do
+defmodule Bilder.Biometrics.HarnessTest do
   use ExUnit.Case, async: true
 
-  alias Bilder.Biometrics.FaceHarness
+  import Bilder.BiometricsFixtures, only: [stub_ridge: 1]
+
+  alias Bilder.Biometrics.Harness
 
   @moduletag :tmp_dir
 
@@ -32,7 +34,7 @@ defmodule Bilder.Biometrics.FaceHarnessTest do
     stub_service(self())
 
     assert {:ok, result} =
-             FaceHarness.run(
+             Harness.run(
                out: tmp_dir,
                run: "r1",
                seed: 42,
@@ -67,12 +69,12 @@ defmodule Bilder.Biometrics.FaceHarnessTest do
     stub_service(self())
     opts = [out: tmp_dir, run: "r2", seed: 7, subjects: 1, shots: ["probe_aged"]]
 
-    assert {:ok, first} = FaceHarness.run(opts)
+    assert {:ok, first} = Harness.run(opts)
     assert_received {:render, %{"seed" => anchor_seed}, []}
     assert_received {:render, _params, [_anchor]}
 
     File.rm!(Path.join([tmp_dir, "r2", "subject_001", "probe_aged.png"]))
-    assert {:ok, second} = FaceHarness.run(opts)
+    assert {:ok, second} = Harness.run(opts)
 
     refute_received {:render, _params, []}
     assert_received {:render, _params, [@anchor_png]}
@@ -91,7 +93,7 @@ defmodule Bilder.Biometrics.FaceHarnessTest do
     end)
 
     assert {:ok, %{subjects: [%{shots: [anchor, profile]}]}} =
-             FaceHarness.run(
+             Harness.run(
                out: tmp_dir,
                run: "r3",
                subjects: 1,
@@ -104,7 +106,80 @@ defmodule Bilder.Biometrics.FaceHarnessTest do
   end
 
   test "rejects unknown shots" do
-    assert {:error, message} = FaceHarness.run(shots: ["selfie"])
+    assert {:error, message} = Harness.run(shots: ["selfie"])
     assert message =~ "selfie"
+  end
+
+  test "renders friction-ridge shots from the subject seed, with ground truth and no face anchor",
+       %{tmp_dir: tmp_dir} do
+    stub_ridge(notify: self())
+
+    assert {:ok, %{subjects: [subject]}} =
+             Harness.run(
+               out: tmp_dir,
+               run: "ridge",
+               seed: 5,
+               subjects: 1,
+               shots: ["slaps"],
+               captures: 2
+             )
+
+    renders =
+      for _ <- 1..6 do
+        assert_received {:ridge_render, body}
+        body
+      end
+
+    assert Enum.map(renders, &{&1["kind"], &1["code"], &1["capture"]}) == [
+             {"slap", 13, 0},
+             {"slap", 14, 0},
+             {"slap", 15, 0},
+             {"slap", 13, 1},
+             {"slap", 14, 1},
+             {"slap", 15, 1}
+           ]
+
+    # Every image of the subject comes from the same seed: same fingers.
+    assert renders |> Enum.map(& &1["seed"]) |> Enum.uniq() == [subject.seed]
+
+    dir = Path.join([tmp_dir, "ridge", "subject_001"])
+    refute File.exists?(Path.join(dir, "mugshot_frontal.png"))
+    assert File.exists?(Path.join(dir, "slap_15_c2.png"))
+
+    ground_truth = dir |> Path.join("slap_13.json") |> File.read!() |> Jason.decode!()
+    assert length(ground_truth["minutiae"]) == 2
+    assert ground_truth["generator"] == "ridgegen/test"
+
+    record =
+      dir
+      |> Path.join("subject.json")
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.get("shots")
+      |> hd()
+
+    assert %{
+             "shot" => "slap_13",
+             "pos" => "13",
+             "status" => "ok",
+             "ground_truth" => "slap_13.json"
+           } = record
+
+    assert record["meta"]["minutiae_count"] == 2
+    refute Map.has_key?(record["meta"], "minutiae")
+  end
+
+  test "resuming keeps the ground truth of existing friction-ridge shots", %{tmp_dir: tmp_dir} do
+    stub_ridge(notify: self())
+    opts = [out: tmp_dir, run: "ridge-resume", seed: 5, subjects: 1, shots: ["rolled_04"]]
+
+    assert {:ok, _result} = Harness.run(opts)
+    assert_received {:ridge_render, _body}
+
+    assert {:ok, %{subjects: [%{shots: [record]}]}} = Harness.run(opts)
+    refute_received {:ridge_render, _body}
+
+    assert %{status: "existing", ground_truth: "rolled_04.json", meta: %{"pattern" => "whorl"}} =
+             record
   end
 end

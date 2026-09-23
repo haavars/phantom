@@ -47,6 +47,10 @@ config :bilder, :qwen_image_req_options, plug: {Req.Test, Bilder.ImageGeneration
 # Don't spawn the real python_inference process during tests.
 config :bilder, :start_qwen_service, false
 
+# Same for the synthetic friction-ridge service.
+config :bilder, :biometrics_req_options, plug: {Req.Test, Bilder.Biometrics.FrictionRidge}
+config :bilder, :start_biometrics_service, false
+
 # Tests that read face runs point this at a tmp_dir; this default keeps anything
 # that slips through out of the real data folder.
-config :bilder, :face_output_dir, Path.expand("../tmp/test/faces", __DIR__)
+config :bilder, :biometrics_output_dir, Path.expand("../tmp/test/biometrics", __DIR__)

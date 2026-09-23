@@ -18,6 +18,7 @@ See README.md in this directory for one-time setup.
 
 import io
 import os
+import sys
 import threading
 from typing import List, Optional
 
@@ -166,8 +167,32 @@ async def generate(
     )
 
 
+def exit_with_parent():
+    """Exit when the Phoenix app that started us goes away.
+
+    Bilder.PythonService starts this server with BILDER_EXIT_WITH_PARENT=1 and a
+    pipe on stdin; the pipe closes when the BEAM exits, however abruptly (e.g.
+    Ctrl+C twice skips the app's shutdown code). Without this, the server would
+    keep running and hold the port, and the next `mix phx.server` couldn't
+    start its own copy.
+    """
+    if os.environ.get("BILDER_EXIT_WITH_PARENT") != "1":
+        return
+
+    def watch():
+        try:
+            while sys.stdin.buffer.read(4096):
+                pass
+        finally:
+            os._exit(0)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    exit_with_parent()
 
     uvicorn.run(
         app,
