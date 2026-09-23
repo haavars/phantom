@@ -1,0 +1,12 @@
+# diffusers' Qwen-Image-2.1 support landed in diffusers main (merged 2026-09-18)
+# and may not be in a tagged release yet, hence the git install.
+torch>=2.4.0
+torchvision
+transformers>=5.17
+git+https://github.com/huggingface/diffusers
+accelerate>=0.34
+pillow
+fastapi
+uvicorn[standard]
+pydantic>=2
+python-multipart
