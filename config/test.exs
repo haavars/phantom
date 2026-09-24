@@ -41,16 +41,19 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 # Stub the Qwen-Image-2.1 HTTP calls in tests instead of hitting a real service.
-# See Phantom.ImageGeneration and Req.Test.
-config :phantom, :qwen_image_req_options, plug: {Req.Test, Phantom.ImageGeneration}
+# See Phantom.Services.Qwen and Req.Test.
+config :phantom, :qwen_image_req_options, plug: {Req.Test, Phantom.Services.Qwen}
 
 # Don't spawn the real python_inference process during tests.
 config :phantom, :start_qwen_service, false
 
 # Same for the synthetic friction-ridge service.
-config :phantom, :biometrics_req_options, plug: {Req.Test, Phantom.Biometrics.FrictionRidge}
+config :phantom, :biometrics_req_options, plug: {Req.Test, Phantom.Services.Ridgegen}
 config :phantom, :start_biometrics_service, false
 
 # Tests that read face runs point this at a tmp_dir; this default keeps anything
 # that slips through out of the real data folder.
 config :phantom, :biometrics_output_dir, Path.expand("../tmp/test/biometrics", __DIR__)
+
+# Jobs are inserted but only run when a test drains the queue or performs them.
+config :phantom, Oban, testing: :manual

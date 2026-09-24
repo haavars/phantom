@@ -13,8 +13,7 @@ defmodule Phantom.Application do
         Phantom.Repo,
         {DNSCluster, query: Application.get_env(:phantom, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Phantom.PubSub},
-        {Task.Supervisor, name: Phantom.Biometrics.TaskSupervisor},
-        Phantom.Biometrics.Runner
+        {Oban, Application.fetch_env!(:phantom, Oban)}
       ] ++
         python_services() ++
         [
@@ -26,21 +25,8 @@ defmodule Phantom.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Phantom.Supervisor]
 
-    with {:ok, pid} <- Supervisor.start_link(children, opts) do
-      interrupt_running_runs()
-      {:ok, pid}
-    end
-  end
-
-  # Nothing is running yet, so runs recorded as running were interrupted by a
-  # restart: mark them cancelled so they can be resumed. Once, at startup
-  # (not when the runner restarts).
-  defp interrupt_running_runs do
-    Phantom.Biometrics.Runs.interrupt_running()
-  rescue
-    error in DBConnection.ConnectionError ->
-      require Logger
-      Logger.warning("Couldn't mark interrupted biometrics runs: #{Exception.message(error)}")
+    Phantom.Biometrics.Workers.GenerateSubject.attach_telemetry()
+    Supervisor.start_link(children, opts)
   end
 
   # Tell Phoenix to update the endpoint configuration
@@ -55,16 +41,16 @@ defmodule Phantom.Application do
   # another machine, or in tests).
   defp python_services do
     [
-      {:start_qwen_service, Phantom.QwenService, "qwen-image", :qwen_service_dir,
+      {:start_qwen_service, Phantom.Services.QwenProcess, "qwen-image", :qwen_service_dir,
        :qwen_service_url},
-      {:start_biometrics_service, Phantom.BiometricsService, "biometrics",
+      {:start_biometrics_service, Phantom.Services.RidgegenProcess, "ridgegen",
        :biometrics_service_dir, :biometrics_service_url}
     ]
     |> Enum.filter(fn {enabled_key, _name, _label, _dir_key, _url_key} ->
       Application.get_env(:phantom, enabled_key, true)
     end)
     |> Enum.map(fn {_enabled_key, name, label, dir_key, url_key} ->
-      {Phantom.PythonService,
+      {Phantom.Services.PythonProcess,
        name: name,
        label: label,
        dir: Application.fetch_env!(:phantom, dir_key),

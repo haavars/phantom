@@ -15,14 +15,12 @@ defmodule Phantom.Biometrics.Image do
 
   alias Phantom.Biometrics.Subject
 
-  @statuses ~w(ok error skipped)
-
   schema "images" do
     field :shot, :string
-    field :modality, :string
+    field :modality, Ecto.Enum, values: [:face, :ridge]
     field :capture, :integer, default: 0
     field :pos, :string
-    field :status, :string
+    field :status, Ecto.Enum, values: [:ok, :error, :skipped]
     field :width, :integer
     field :height, :integer
     field :seed, :integer
@@ -68,12 +66,10 @@ defmodule Phantom.Biometrics.Image do
     image
     |> cast(attrs, @fields)
     |> validate_required([:shot, :modality, :status])
-    |> validate_inclusion(:status, @statuses)
-    |> validate_inclusion(:modality, ["face", "ridge"])
     |> unique_constraint([:subject_id, :shot])
   end
 
   @doc "True when the image was rendered and has a file."
-  def rendered?(%__MODULE__{status: "ok", storage_key: key}), do: is_binary(key)
+  def rendered?(%__MODULE__{status: :ok, storage_key: key}), do: is_binary(key)
   def rendered?(_image), do: false
 end

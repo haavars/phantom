@@ -43,6 +43,7 @@ defmodule Phantom.MixProject do
       {:phoenix, "~> 1.8.14"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
+      {:oban, "~> 2.24"},
       {:postgrex, ">= 0.0.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},

@@ -3,10 +3,10 @@ defmodule PhantomWeb.ImageControllerTest do
 
   import Phantom.BiometricsFixtures
 
-  alias Phantom.Biometrics.Runs
+  alias Phantom.Biometrics
 
   defp image(run, shot) do
-    {:ok, subject} = Runs.get_subject(run, "subject_001")
+    {:ok, subject} = Biometrics.get_subject(run, "subject_001")
     Enum.find(subject.images, &(&1.shot == shot))
   end
 

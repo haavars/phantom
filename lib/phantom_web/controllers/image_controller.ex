@@ -1,17 +1,16 @@
 defmodule PhantomWeb.ImageController do
   @moduledoc """
   Serves a generated image's file and its ground truth, by image id. Files
-  live in `Phantom.Biometrics.Storage`, outside `priv/static`.
+  live in storage (`Phantom.Biometrics.Storage`), outside `priv/static`.
   """
 
   use PhantomWeb, :controller
 
-  alias Phantom.Biometrics.{Runs, Storage}
+  alias Phantom.Biometrics
 
   def show(conn, %{"id" => id}) do
     with {:ok, image} <- fetch_image(id),
-         key when is_binary(key) <- image.storage_key,
-         {:ok, path} <- Storage.local_path(key) do
+         {:ok, path} <- Biometrics.image_path(image) do
       conn
       |> put_resp_content_type(image.content_type || "image/png", nil)
       # Images can be rendered again in place with --force, so don't cache for long.
@@ -39,7 +38,7 @@ defmodule PhantomWeb.ImageController do
 
   defp fetch_image(id) do
     case Integer.parse(id) do
-      {id, ""} -> Runs.get_image(id)
+      {id, ""} -> Biometrics.get_image(id)
       _ -> {:error, :not_found}
     end
   end

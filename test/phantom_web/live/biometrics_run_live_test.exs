@@ -1,16 +1,15 @@
 defmodule PhantomWeb.BiometricsRunLiveTest do
-  # Uses the global face output dir and the app-wide Runner.
+  # Renders runs in a separate process in some tests: shared sandbox and stubs.
   use PhantomWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Phantom.BiometricsFixtures
 
-  alias Phantom.Biometrics.Runner
+  alias Phantom.Biometrics
 
   setup {Req.Test, :set_req_test_to_shared}
 
   setup do
-    on_exit(fn -> Runner.cancel() end)
     {:ok, run: create_run()}
   end
 
@@ -101,19 +100,21 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
 
   test "resumes an incomplete run and shows new subjects live", %{conn: conn, run: run} do
     # Pretend the run was meant to have a third subject.
-    {:ok, stored} = Phantom.Biometrics.Runs.summary(run)
+    {:ok, stored} = Biometrics.get_run(run)
     stored |> Ecto.Changeset.change(subject_count: 3) |> Phantom.Repo.update!()
 
-    stub_qwen()
-    Runner.subscribe()
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
     refute has_element?(view, "#subjects-subject_003")
 
     view |> element("#resume-run") |> render_click()
-    assert_receive {:biometrics_run, :finished, %{run: ^run}}
+    assert has_element?(view, "#run-status", "queued")
+    assert has_element?(view, "#cancel-run")
+
+    render_queued()
 
     assert has_element?(view, "#tile-subject_003-mugshot_left_profile img")
     refute has_element?(view, "#resume-run")
+    refute has_element?(view, "#run-status")
   end
 
   test "redirects to the run list for unknown runs", %{conn: conn} do
@@ -182,11 +183,10 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
       end
     )
 
-    Runner.subscribe()
+    {:ok, _run} =
+      Biometrics.create_run(%{run: "live-run", subjects: 1, shots: ["mugshot_left_profile"]})
 
-    {:ok, "live-run"} =
-      Runner.start_run(run: "live-run", subjects: 1, shots: ["mugshot_left_profile"])
-
+    rendering = render_queued_async()
     assert_receive :rendering
 
     {:ok, view, _html} =
@@ -195,5 +195,9 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     assert has_element?(view, "#shot-detail")
     assert has_element?(view, "#shot-prompt", "Police booking photograph")
     refute has_element?(view, "#ridge-meta")
+    assert has_element?(view, "#run-progress")
+
+    send(rendering.pid, :continue)
+    Task.await(rendering)
   end
 end

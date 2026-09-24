@@ -35,8 +35,9 @@ defmodule Phantom.Biometrics.GalleryTest do
   end
 
   test "leaves out subjects without rendered images" do
-    Req.Test.stub(Phantom.ImageGeneration, &Plug.Conn.send_resp(&1, 500, "boom"))
-    {:ok, %{run: run}} = Phantom.Biometrics.Harness.run(run: unique_run_name(), subjects: 1)
+    stub_qwen(generate: &Plug.Conn.send_resp(&1, 500, "boom"))
+    {:ok, run} = Phantom.Biometrics.create_run(%{subjects: 1, shots: ["mugshot_frontal"]})
+    render_queued()
 
     refute Enum.any?(Gallery.identities(), &(&1.run == run.name))
   end

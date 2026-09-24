@@ -10,7 +10,7 @@ defmodule Phantom.ImageGenerationTest do
   end
 
   test "saves the generated image and returns its public path" do
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("x-seed", "7")
       |> Plug.Conn.put_resp_content_type("image/png")
@@ -28,7 +28,7 @@ defmodule Phantom.ImageGenerationTest do
   end
 
   test "surfaces a helpful error when the service is unreachable" do
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       Req.Test.transport_error(conn, :econnrefused)
     end)
 
@@ -37,7 +37,7 @@ defmodule Phantom.ImageGenerationTest do
   end
 
   test "sends reference images as multipart file fields" do
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       conn =
         Plug.Parsers.call(
           conn,
@@ -94,7 +94,7 @@ defmodule Phantom.ImageGenerationTest do
     end
 
     test "returns :unreachable when the service can't be reached" do
-      Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+      Req.Test.stub(Phantom.Services.Qwen, fn conn ->
         Req.Test.transport_error(conn, :econnrefused)
       end)
 
@@ -102,7 +102,7 @@ defmodule Phantom.ImageGenerationTest do
     end
 
     defp stub_health(body) do
-      Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+      Req.Test.stub(Phantom.Services.Qwen, fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, Jason.encode!(body))

@@ -1,14 +1,16 @@
 defmodule Phantom.Biometrics.RunRequest do
   @moduledoc """
-  Validates a request to start a run from the web UI. `shots` holds face shot
-  ids and friction-ridge group names (`"rolled"`, `"slaps"`, `"palms"`,
-  `"card"`), see `Phantom.Biometrics.Shots.expand/2`.
+  The parameters of a new run, as `Phantom.Biometrics.create_run/1` takes
+  them from the web form or from IEx. `shots` holds shot ids and group
+  names (`"faces"`, `"rolled"`, `"slaps"`, `"palms"`, `"card"`), see
+  `Phantom.Biometrics.Shots.expand/2`.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Phantom.Biometrics.{FacePrompts, Harness, Runs, Shots}
+  alias Phantom.Biometrics
+  alias Phantom.Biometrics.{FacePrompts, Run, Shots}
 
   @max_subjects 100
   @steps [20, 30, 40, 50]
@@ -42,36 +44,24 @@ defmodule Phantom.Biometrics.RunRequest do
     )
     |> validate_number(:seed, greater_than_or_equal_to: 0, less_than: 2_147_483_647)
     |> validate_inclusion(:steps, @steps)
-    |> validate_subset(
-      :shots,
-      FacePrompts.shots() ++ Enum.map(Shots.ridge_groups(), &elem(&1, 0))
-    )
     |> validate_length(:shots, min: 1, message: "pick at least one shot")
+    |> validate_change(:shots, fn :shots, shots ->
+      case Shots.expand(shots) do
+        {:ok, _ids} -> []
+        {:error, message} -> [shots: message]
+      end
+    end)
     |> validate_number(:captures,
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: Shots.max_captures()
     )
-    |> validate_inclusion(:renderer, Harness.renderers())
+    |> validate_inclusion(:renderer, Run.renderers())
     |> validate_length(:run, max: 80)
     |> validate_format(:run, ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/,
       message: "use letters, digits, dots, dashes and underscores"
     )
     |> validate_change(:run, fn :run, run ->
-      if Runs.exists?(run), do: [run: "already exists"], else: []
+      if Biometrics.run_exists?(run), do: [run: "already exists"], else: []
     end)
-  end
-
-  @doc "Harness options for a valid request."
-  def to_opts(%__MODULE__{} = request) do
-    [
-      subjects: request.subjects,
-      steps: request.steps,
-      shots: request.shots,
-      captures: request.captures,
-      renderer: request.renderer,
-      seed: request.seed,
-      run: request.run
-    ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 end

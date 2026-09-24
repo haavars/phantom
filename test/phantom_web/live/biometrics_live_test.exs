@@ -1,18 +1,17 @@
 defmodule PhantomWeb.BiometricsLiveTest do
-  # Uses the global face output dir and the app-wide Runner.
+  # Renders runs in a separate process in some tests: shared sandbox and stubs.
   use PhantomWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Phantom.BiometricsFixtures
 
-  alias Phantom.Biometrics.Runner
+  alias Phantom.Biometrics
 
   setup {Req.Test, :set_req_test_to_shared}
 
   setup do
     stub_qwen()
     stub_ridge()
-    on_exit(fn -> Runner.cancel() end)
     :ok
   end
 
@@ -53,8 +52,7 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#run-estimate", "4 images")
   end
 
-  test "starts a run and navigates to it", %{conn: conn} do
-    Runner.subscribe()
+  test "queues a run and navigates to it", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/biometrics")
 
     assert {:error, {:live_redirect, %{to: "/biometrics/ui-run"}}} =
@@ -64,9 +62,9 @@ defmodule PhantomWeb.BiometricsLiveTest do
              )
              |> render_submit()
 
-    assert_receive {:biometrics_run, :finished, %{run: "ui-run"}}
-    assert {:ok, %{images: images}} = Phantom.Biometrics.Runs.get_subject("ui-run", "subject_001")
-    assert Enum.any?(images, &(&1.shot == "rolled_10" and &1.status == "ok"))
+    render_queued()
+    assert {:ok, %{images: images}} = Biometrics.get_subject("ui-run", "subject_001")
+    assert Enum.any?(images, &(&1.shot == "rolled_10" and &1.status == :ok))
     refute Enum.any?(images, &(&1.shot == "mugshot_frontal"))
   end
 
@@ -83,16 +81,31 @@ defmodule PhantomWeb.BiometricsLiveTest do
       end
     )
 
-    Runner.subscribe()
     {:ok, view, _html} = live(conn, ~p"/biometrics")
-    {:ok, "busy-run"} = Runner.start_run(run: "busy-run", subjects: 1)
+
+    {:ok, _run} =
+      Biometrics.create_run(%{run: "busy-run", subjects: 1, shots: ["mugshot_frontal"]})
+
+    {:ok, next} =
+      Biometrics.create_run(%{run: "next-run", subjects: 1, shots: ["mugshot_frontal"]})
+
+    assert has_element?(view, "#run-status-next-run", "queued")
+
+    rendering = render_queued_async()
     assert_receive :rendering
 
     assert has_element?(view, "#active-run", "busy-run")
-    assert has_element?(view, "#start-run[disabled]")
+    assert has_element?(view, "#run-status-busy-run", "running")
+    # Another run can still be queued behind it.
+    refute has_element?(view, "#start-run[disabled]")
 
     view |> element("#cancel-run") |> render_click()
-    assert_receive {:biometrics_run, :cancelled, _progress}
     refute has_element?(view, "#active-run")
+    assert has_element?(view, "#run-status-busy-run", "cancelled")
+
+    # Let the render that was in flight finish, without starting the next run.
+    Biometrics.cancel_run(next)
+    send(rendering.pid, :continue)
+    Task.await(rendering)
   end
 end

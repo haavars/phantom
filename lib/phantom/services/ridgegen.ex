@@ -1,8 +1,11 @@
-defmodule Phantom.Biometrics.FrictionRidge do
+defmodule Phantom.Services.Ridgegen do
   @moduledoc """
-  HTTP client for the synthetic friction-ridge service (`python_biometrics/`),
-  which generates rolled fingerprints, slaps, palmprints and tenprint cards
-  procedurally on the CPU.
+  HTTP client for the synthetic friction-ridge service (`python_biometrics/`,
+  "ridgegen"): rolled fingerprints, slaps, palmprints and tenprint cards,
+  verified against their ground truth, and bozorth3 matching.
+
+  It runs next to this app as `Phantom.Services.RidgegenProcess` (see
+  `Phantom.Services.PythonProcess`).
   """
 
   @doc "Returns `:ready`, `{:error, reason}` or `:unreachable`."

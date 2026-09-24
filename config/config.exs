@@ -16,7 +16,7 @@ config :phantom,
 config :phantom, :qwen_service_url, "http://localhost:8000"
 
 # The Phoenix app supervises python_inference/server.py directly (see
-# Phantom.QwenService) so it starts and stops along with `mix phx.server`.
+# Phantom.Services.QwenProcess) so it starts and stops along with `mix phx.server`.
 # Disable with QWEN_AUTOSTART=false and override the directory with
 # QWEN_SERVICE_DIR, see config/runtime.exs.
 config :phantom, :start_qwen_service, true
@@ -29,9 +29,20 @@ config :phantom, :biometrics_service_url, "http://localhost:8001"
 config :phantom, :start_biometrics_service, true
 config :phantom, :biometrics_service_dir, Path.expand("../python_biometrics", __DIR__)
 
-# Where Phantom.Biometrics.Harness writes synthetic face runs (and where the
-# /biometrics pages read them from). Gitignored.
+# Where generated images are stored (Phantom.Biometrics.Storage.Local); the
+# database keeps each image's key relative to this folder. Gitignored.
 config :phantom, :biometrics_output_dir, Path.expand("../data/synthetic/biometrics", __DIR__)
+
+# Background jobs. `generation` renders one subject at a time: the GPU renders
+# one image at a time and the ridge service already uses every CPU core. A
+# subject takes minutes, so jobs orphaned by a restart are rescued (and resume
+# from the images already stored) after half an hour.
+config :phantom, Oban,
+  engine: Oban.Engines.Basic,
+  repo: Phantom.Repo,
+  queues: [generation: 1],
+  lifeline: [rescue_after: {30, :minutes}],
+  pruner: [max_age: {7, :days}]
 
 # Configure the endpoint
 config :phantom, PhantomWeb.Endpoint,

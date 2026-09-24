@@ -13,66 +13,49 @@ defmodule PhantomWeb.BiometricsRunLive do
 
   import PhantomWeb.BiometricsComponents
 
-  alias Phantom.Biometrics.{FrictionRidge, Gallery, Runner, Runs, Shots}
-  alias Phantom.ImageGeneration
-
-  @terminal [:finished, :cancelled, :failed]
+  alias Phantom.Biometrics
+  alias Phantom.Biometrics.{Gallery, Run, Shots}
 
   @impl true
   def mount(%{"run" => name} = params, _session, socket) do
-    if connected?(socket), do: Runner.subscribe()
-
-    progress = Runner.current()
-    active = if match?(%{run: ^name}, progress), do: progress
+    if connected?(socket), do: Biometrics.subscribe()
     focus = if socket.assigns.live_action == :subject, do: params["subject"]
 
-    case load_run(name, active) do
-      {:ok, run, subjects} ->
-        focused = focus && Enum.find(subjects, &(&1.name == focus))
+    with {:ok, run} <- Biometrics.get_run(name),
+         focused = focus && Enum.find(run.subjects, &(&1.name == focus)),
+         {:subject, true} <- {:subject, is_nil(focus) or not is_nil(focused)} do
+      socket =
+        socket
+        |> assign(:page_title, if(focused, do: Gallery.code(focused.seed), else: name))
+        |> assign(:focus, focus)
+        |> assign(:focused, focused)
+        |> assign(:selected, nil)
+        |> assign_run(run)
+        |> assign(:has_failures?, failures?(run.subjects))
+        |> stream_configure(:subjects, dom_id: &"subjects-#{&1.name}")
+        |> stream(:subjects, in_focus(run.subjects, focus))
 
-        if focus && is_nil(focused) do
-          {:ok,
-           socket
-           |> put_flash(:error, "Subject #{focus} not found in #{name}.")
-           |> push_navigate(to: ~p"/biometrics/#{name}")}
-        else
-          socket =
-            socket
-            |> assign(:page_title, if(focused, do: Gallery.code(focused.seed), else: name))
-            |> assign(:run, run)
-            |> assign(:focus, focus)
-            |> assign(:focused, focused)
-            |> assign(:progress, active)
-            |> assign(:busy?, not is_nil(progress) and is_nil(active))
-            |> assign(:has_failures?, failures?(subjects))
-            |> assign(:selected, nil)
-            |> stream_configure(:subjects, dom_id: &"subjects-#{&1.name}")
-            |> stream(:subjects, in_focus(subjects, focus))
-
-          {:ok, socket}
-        end
-
+      {:ok, socket}
+    else
       {:error, :not_found} ->
         {:ok,
          socket
          |> put_flash(:error, "Run #{name} not found.")
          |> push_navigate(to: ~p"/biometrics")}
+
+      {:subject, false} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Subject #{focus} not found in #{name}.")
+         |> push_navigate(to: ~p"/biometrics/#{name}")}
     end
   end
 
-  # The run and its subjects from the database. The subject that's rendering
-  # right now comes from the runner's snapshot instead, which is ahead of it.
-  defp load_run(name, active) do
-    with {:ok, run} <- Runs.get_run(name) do
-      live = active && active.subject
-
-      subjects =
-        Enum.map(run.subjects, fn subject ->
-          if live && live.name == subject.name, do: live, else: subject
-        end)
-
-      {:ok, %{run | subjects: []}, subjects}
-    end
+  # The run without its subjects (they're streamed), and where it is if it's rendering.
+  defp assign_run(socket, %Run{} = run) do
+    socket
+    |> assign(:run, %{run | subjects: []})
+    |> assign(:progress, if(run.status == :running, do: Biometrics.progress(run)))
   end
 
   @impl true
@@ -81,11 +64,9 @@ defmodule PhantomWeb.BiometricsRunLive do
   end
 
   defp select(socket, %{"subject" => subject_name, "shot" => shot}) do
-    with {:ok, subject} <- find_subject(socket, subject_name),
-         %{status: "ok"} = record <- Enum.find(subject.images, &(&1.shot == shot)) do
-      rendered =
-        subject.images |> Enum.filter(&(&1.status == "ok")) |> Enum.map(& &1.shot)
-
+    with {:ok, subject} <- Biometrics.get_subject(socket.assigns.run.name, subject_name),
+         %{status: :ok} = record <- Enum.find(subject.images, &(&1.shot == shot)) do
+      rendered = for %{status: :ok, shot: shot} <- subject.images, do: shot
       index = Enum.find_index(rendered, &(&1 == shot))
 
       %{
@@ -101,43 +82,15 @@ defmodule PhantomWeb.BiometricsRunLive do
 
   defp select(_socket, _params), do: nil
 
-  defp find_subject(socket, subject_name) do
-    case socket.assigns.progress do
-      %{subject: %{name: ^subject_name} = subject} -> {:ok, subject}
-      _ -> Runs.get_subject(socket.assigns.run.name, subject_name)
-    end
-  end
-
   @impl true
   def handle_event("resume", _params, socket) do
-    run = socket.assigns.run
-
-    opts =
-      [
-        run: run.name,
-        seed: run.seed,
-        shots: run.shots,
-        steps: run.steps,
-        subjects: run.subject_count,
-        renderer: run.renderer
-      ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-
-    with :ok <- services_ready(run.shots),
-         {:ok, _run} <- Runner.start_run(opts) do
-      {:noreply, socket}
-    else
-      {:error, :busy} ->
-        {:noreply, put_flash(socket, :error, "Another run is in progress.")}
-
-      {:error, message} when is_binary(message) ->
-        {:noreply, put_flash(socket, :error, message)}
-    end
+    {:ok, run} = Biometrics.resume_run(socket.assigns.run)
+    {:noreply, assign_run(socket, run)}
   end
 
   def handle_event("cancel", _params, socket) do
-    :ok = Runner.cancel()
-    {:noreply, socket}
+    {:ok, run} = Biometrics.cancel_run(socket.assigns.run)
+    {:noreply, assign_run(socket, run)}
   end
 
   def handle_event(
@@ -177,88 +130,68 @@ defmodule PhantomWeb.BiometricsRunLive do
   def handle_event("lightbox-key", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info(
-        {:biometrics_run, event, %{run: name} = progress},
-        %{assigns: %{run: %{name: name}}} = socket
-      ) do
+  def handle_info({:run_updated, %Run{id: id} = run}, %{assigns: %{run: %{id: id}}} = socket) do
+    previous = socket.assigns.run.status
+    socket = assign_run(socket, run)
+
     socket =
-      cond do
-        event in @terminal ->
-          socket
-          |> assign(:progress, nil)
-          |> reload()
-          |> flash_outcome(event, progress)
-
-        event == :started ->
-          socket |> assign(:progress, progress) |> assign(:busy?, false)
-
-        event == :subject_done ->
-          socket
-          |> assign(:progress, progress)
-          |> update(:run, &%{&1 | completed_subjects: &1.completed_subjects + 1})
-          |> insert_subject(progress.subject)
-
-        progress.subject ->
-          socket |> assign(:progress, progress) |> insert_subject(progress.subject)
-
-        true ->
-          assign(socket, :progress, progress)
-      end
+      if run.status != previous and run.status in [:finished, :cancelled, :failed],
+        do: socket |> reload() |> flash_outcome(run),
+        else: socket
 
     {:noreply, socket}
   end
 
-  # Another run started or stopped: only matters for whether Resume is possible.
-  def handle_info({:biometrics_run, event, _progress}, socket) do
-    {:noreply, assign(socket, :busy?, event not in @terminal)}
+  def handle_info(
+        {:subject_updated, %{run_id: id} = subject},
+        %{assigns: %{run: %{id: id}}} = socket
+      ) do
+    socket =
+      socket
+      |> insert_subject(subject)
+      |> update(:has_failures?, &(&1 or failures?([subject])))
+      |> assign_run(socket.assigns.run)
+
+    {:noreply, socket}
   end
 
-  # Re-read the run from disk, dropping a half-rendered subject after a cancel.
+  # Another run's events.
+  def handle_info({event, _record}, socket) when event in [:run_updated, :subject_updated],
+    do: {:noreply, socket}
+
+  # Re-read the run's subjects, e.g. to drop a half-rendered subject's state after a cancel.
   defp reload(socket) do
-    case load_run(socket.assigns.run.name, nil) do
-      {:ok, run, subjects} ->
+    case Biometrics.get_run(socket.assigns.run.name) do
+      {:ok, run} ->
         socket
-        |> assign(:run, run)
-        |> assign(:has_failures?, failures?(subjects))
-        |> stream(:subjects, in_focus(subjects, socket.assigns.focus), reset: true)
+        |> assign(:has_failures?, failures?(run.subjects))
+        |> stream(:subjects, in_focus(run.subjects, socket.assigns.focus), reset: true)
 
       {:error, :not_found} ->
         socket
     end
   end
 
-  defp flash_outcome(socket, :finished, _progress), do: put_flash(socket, :info, "Run finished.")
+  defp flash_outcome(socket, %Run{status: :finished}),
+    do: put_flash(socket, :info, "Run finished.")
 
-  defp flash_outcome(socket, :cancelled, _progress),
+  defp flash_outcome(socket, %Run{status: :cancelled}),
     do: put_flash(socket, :info, "Run cancelled. Resume to render the rest.")
 
-  defp flash_outcome(socket, :failed, progress),
-    do: put_flash(socket, :error, "Run failed: #{progress.error}")
+  defp flash_outcome(socket, %Run{status: :failed, error: error}),
+    do: put_flash(socket, :error, "Run failed: #{error}")
 
   defp failures?(subjects) do
     Enum.any?(subjects, fn subject ->
-      Enum.any?(subject.images, &(&1.status in ["error", "skipped"]))
+      Enum.any?(subject.images, &(&1.status in [:error, :skipped]))
     end)
   end
 
   defp resumable?(run, has_failures?),
-    do: run.status != "running" and (run.completed_subjects < run.subject_count or has_failures?)
+    do: not Run.active?(run) and (run.completed_subjects < run.subject_count or has_failures?)
 
   defp active_subject_id(%{subject: %{name: name}}), do: name
   defp active_subject_id(_progress), do: nil
-
-  defp services_ready(shots) do
-    cond do
-      Enum.any?(shots, &Shots.face?/1) and ImageGeneration.health() != :ready ->
-        {:error, "The Qwen-Image-2.1 service isn't ready."}
-
-      Enum.any?(shots, &Shots.ridge?/1) and FrictionRidge.health() != :ready ->
-        {:error, "The friction-ridge service isn't ready."}
-
-      true ->
-        :ok
-    end
-  end
 
   # Tiles are grouped into sections: Face, Rolled fingers, Slaps, ... with a
   # section per extra capture.
@@ -323,7 +256,7 @@ defmodule PhantomWeb.BiometricsRunLive do
       |> assign(:attributes, Map.get(assigns.subject, :attributes) || %{})
       |> assign(
         :images,
-        Enum.count(assigns.subject.images, &(&1.status == "ok"))
+        Enum.count(assigns.subject.images, &(&1.status == :ok))
       )
 
     ~H"""
@@ -396,7 +329,15 @@ defmodule PhantomWeb.BiometricsRunLive do
           >
             ← All runs
           </.link>
-          <h1 class="mt-2 truncate font-mono text-xl font-semibold">{@run.name}</h1>
+          <div class="mt-2 flex flex-wrap items-center gap-x-3">
+            <h1 class="truncate font-mono text-xl font-semibold">{@run.name}</h1>
+            <.run_status
+              :if={@run.status != :finished}
+              id="run-status"
+              status={@run.status}
+              class="mt-0"
+            />
+          </div>
           <dl id="run-meta" class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-base-content/60">
             <div>
               <dt class="inline">seed</dt>
@@ -429,7 +370,7 @@ defmodule PhantomWeb.BiometricsRunLive do
         </div>
         <div class="flex items-center gap-2">
           <.action_button
-            :if={@progress}
+            :if={Run.active?(@run)}
             variant="danger"
             id="cancel-run"
             phx-click="cancel"
@@ -437,12 +378,10 @@ defmodule PhantomWeb.BiometricsRunLive do
             Cancel run
           </.action_button>
           <.action_button
-            :if={is_nil(@progress) and resumable?(@run, @has_failures?)}
+            :if={resumable?(@run, @has_failures?)}
             variant="primary"
             id="resume-run"
             phx-click="resume"
-            disabled={@busy?}
-            title={if(@busy?, do: "Another run is in progress")}
           >
             Resume
           </.action_button>

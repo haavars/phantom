@@ -1,12 +1,12 @@
-defmodule Phantom.PythonService do
+defmodule Phantom.Services.PythonProcess do
   @moduledoc """
   Runs a local Python service (a `server.py` in its own venv) as a supervised
   part of this application: `mix phx.server` starts it, restarts it if it dies,
   and stops it on shutdown, so there's no separate process to manage by hand.
   Used for:
 
-    * `Phantom.QwenService` - Qwen-Image-2.1 (`python_inference/`, GPU, port 8000)
-    * `Phantom.BiometricsService` - synthetic friction ridges (`python_biometrics/`, CPU, port 8001)
+    * `Phantom.Services.QwenProcess` - Qwen-Image-2.1 (`python_inference/`, GPU, port 8000)
+    * `Phantom.Services.RidgegenProcess` - synthetic friction ridges (`python_biometrics/`, CPU, port 8001)
 
   The service runs as an OS process behind an Erlang port rather than inside
   the BEAM: a crash or out-of-memory error in PyTorch/CUDA then takes down only

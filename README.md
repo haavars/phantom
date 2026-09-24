@@ -23,7 +23,7 @@ a local ridge generator, both running as small local Python services that this a
    mix phx.server
    ```
 
-   `mix phx.server` also starts `python_inference/server.py` for you (see `Phantom.PythonService`) and stops it
+   `mix phx.server` also starts `python_inference/server.py` for you (see `Phantom.Services.PythonProcess`) and stops it
    on shutdown. Visit [`localhost:4000`](http://localhost:4000), which opens the biometrics page. The first
    run downloads the face model, which takes a while.
 
@@ -45,13 +45,14 @@ Each run generates synthetic subjects, fictional people:
 
 All images of one subject show the same person, fingers and palms, and extra captures give mated pairs.
 
-Start and browse runs at [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or from the command
-line:
+Start and browse runs at [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or from IEx attached to
+the running app (`iex -S mix phx.server`):
 
-```bash
-mix biometrics.generate --subjects 5 --shots faces,rolled,slaps,palms,card --captures 2
+```elixir
+Phantom.Biometrics.create_run(%{subjects: 5, shots: ["faces", "rolled", "slaps", "palms", "card"], captures: 2})
 ```
 
+Runs are queued and rendered one subject at a time by [Oban](https://oban.hexdocs.pm) jobs.
 Runs, subjects, images and their ground truth are stored in Postgres; the image files are written to
 `data/synthetic/biometrics/<run>/<subject>/`. The same seed reproduces the same subjects, and reusing `--run`
 resumes a run. The output is synthetic test data

@@ -28,6 +28,7 @@ defmodule PhantomWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import PhantomWeb.ConnCase
+      use Oban.Testing, repo: Phantom.Repo
     end
   end
 

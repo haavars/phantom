@@ -1,5 +1,5 @@
 defmodule Phantom.BiometricsFixtures do
-  @moduledoc "Helpers for tests that need synthetic-biometrics runs on disk."
+  @moduledoc "Helpers for tests that need synthetic-biometrics runs: service stubs and rendered runs."
 
   @png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "fake-png"
 
@@ -13,7 +13,7 @@ defmodule Phantom.BiometricsFixtures do
   def stub_qwen(opts \\ []) do
     generate = Keyword.get(opts, :generate, &send_png/1)
 
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           conn
@@ -46,7 +46,7 @@ defmodule Phantom.BiometricsFixtures do
   def stub_ridge(opts \\ []) do
     notify = Keyword.get(opts, :notify)
 
-    Req.Test.stub(Phantom.Biometrics.FrictionRidge, fn conn ->
+    Req.Test.stub(Phantom.Services.Ridgegen, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           Req.Test.json(conn, %{status: "ready"})
@@ -118,28 +118,37 @@ defmodule Phantom.BiometricsFixtures do
   defp verification_meta(_body), do: %{}
 
   @doc """
-  Creates a run with the stubbed services and returns its name. Names are
-  unique by default, since every test shares the storage root
+  Creates a run with the stubbed services, renders it by draining the Oban
+  queue in the test process, and returns its name. Names are unique by
+  default, since every test shares the storage root
   (`config :phantom, :biometrics_output_dir`).
   """
-  def create_run(opts \\ []) do
+  def create_run(params \\ []) do
     stub_qwen()
     stub_ridge()
 
-    opts =
-      Keyword.merge(
-        [
-          run: unique_run_name(),
-          seed: 42,
-          subjects: 2,
-          shots: ["mugshot_left_profile"]
-        ],
-        opts
+    params =
+      Map.merge(
+        %{run: unique_run_name(), seed: 42, subjects: 2, shots: ["mugshot_left_profile"]},
+        Map.new(params)
       )
 
-    {:ok, _result} = Phantom.Biometrics.Harness.run(opts)
-    Keyword.fetch!(opts, :run)
+    {:ok, run} = Phantom.Biometrics.create_run(params)
+    render_queued()
+    run.name
   end
+
+  @doc "Runs every queued subject job in the test process."
+  def render_queued do
+    Oban.drain_queue(queue: :generation, with_safety: false)
+  end
+
+  @doc """
+  Renders the queued jobs in a separate process, for tests that look at a
+  run while it renders (with a stub that blocks). Needs the shared sandbox and
+  `Req.Test` modes, i.e. an `async: false` test.
+  """
+  def render_queued_async, do: Task.async(&render_queued/0)
 
   @doc "A run name no other test uses."
   def unique_run_name(prefix \\ "run"), do: "#{prefix}-#{System.unique_integer([:positive])}"

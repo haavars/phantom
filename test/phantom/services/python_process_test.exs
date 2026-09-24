@@ -1,9 +1,9 @@
-defmodule Phantom.PythonServiceTest do
+defmodule Phantom.Services.PythonProcessTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
 
-  alias Phantom.PythonService
+  alias Phantom.Services.PythonProcess
 
   @moduletag :tmp_dir
 
@@ -39,7 +39,7 @@ defmodule Phantom.PythonServiceTest do
     capture_log(fn ->
       pid =
         start_supervised!(
-          {PythonService, name: name, label: "test", dir: dir, initial_backoff: 10}
+          {PythonProcess, name: name, label: "test", dir: dir, initial_backoff: 10}
         )
 
       wait_until(fn -> starts(dir) == 1 end)
@@ -71,7 +71,7 @@ defmodule Phantom.PythonServiceTest do
       capture_log(fn ->
         pid =
           start_supervised!(
-            {PythonService,
+            {PythonProcess,
              name: :"svc_#{System.unique_integer([:positive])}",
              label: "test",
              dir: dir,

@@ -7,14 +7,25 @@ defmodule Phantom.Biometrics.Gallery do
   many images of each modality it has. Newest runs come first.
   """
 
-  alias Phantom.Biometrics.{Image, Runs, Shots}
+  import Ecto.Query
+
+  alias Phantom.Repo
+  alias Phantom.Biometrics.{Image, Shots, Subject}
 
   @portraits ["mugshot_frontal", "icao_portrait"]
 
   @doc "Identities across all runs, newest first, at most `limit`."
   def identities(limit \\ 48) do
-    limit
-    |> Runs.list_subjects_with_images()
+    rendered = from i in Image, where: i.status == :ok, select: i.subject_id
+
+    Repo.all(
+      from s in Subject,
+        join: r in assoc(s, :run),
+        where: s.id in subquery(rendered),
+        order_by: [desc: r.inserted_at, desc: r.id, asc: s.position],
+        limit: ^limit,
+        preload: [:images, run: r]
+    )
     |> Enum.map(&identity/1)
   end
 

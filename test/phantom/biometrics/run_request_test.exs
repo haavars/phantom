@@ -10,13 +10,14 @@ defmodule Phantom.Biometrics.RunRequestTest do
     assert {:ok, request} = submit(%{"subjects" => "2", "seed" => "", "run" => ""})
     assert request.shots == FacePrompts.default_shots() ++ ~w(rolled slaps palms card)
 
-    assert RunRequest.to_opts(request) == [
-             subjects: 2,
-             steps: 40,
-             shots: request.shots,
-             captures: 1,
-             renderer: "diffusion"
-           ]
+    assert %{subjects: 2, steps: 40, captures: 1, renderer: "diffusion", seed: nil, run: nil} =
+             request
+  end
+
+  test "accepts single shot ids as well as groups" do
+    assert {:ok, %{shots: ["rolled_04", "faces"]}} = submit(%{"shots" => ["rolled_04", "faces"]})
+    assert {:error, changeset} = submit(%{"shots" => ["rolled_04", "selfie"]})
+    assert {"Unknown shots: selfie", _} = changeset.errors[:shots]
   end
 
   test "accepts friction-ridge groups and validates captures and empty selections" do

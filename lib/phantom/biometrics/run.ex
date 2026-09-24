@@ -1,8 +1,11 @@
 defmodule Phantom.Biometrics.Run do
   @moduledoc """
-  One harness run: its settings, status and friction-ridge quality report.
-  Its subjects and their images are `Phantom.Biometrics.Subject` and
-  `Phantom.Biometrics.Image`.
+  A batch of synthetic subjects: its settings, where it is in its lifecycle
+  and its friction-ridge quality report (`Phantom.Biometrics.Report`).
+
+  A run is `:queued` when created, with one `GenerateSubject` job per subject.
+  It turns `:running` when its first subject starts and `:finished` when its
+  last one is done. `:cancelled` and `:failed` runs can be resumed.
   """
 
   use Ecto.Schema
@@ -10,15 +13,19 @@ defmodule Phantom.Biometrics.Run do
 
   alias Phantom.Biometrics.Subject
 
-  @statuses ~w(running finished cancelled failed)
+  @renderers ~w(diffusion procedural)
 
   schema "runs" do
     field :name, :string
     field :seed, :integer
-    field :status, :string, default: "running"
+
+    field :status, Ecto.Enum,
+      values: [:queued, :running, :finished, :cancelled, :failed],
+      default: :queued
+
     field :shots, {:array, :string}, default: []
     field :captures, :integer, default: 1
-    field :renderer, :string
+    field :renderer, :string, default: "diffusion"
     field :steps, :integer
     field :prompt_version, :string
     field :subject_count, :integer
@@ -27,7 +34,7 @@ defmodule Phantom.Biometrics.Run do
     field :started_at, :utc_datetime_usec
     field :finished_at, :utc_datetime_usec
 
-    # Set by `Phantom.Biometrics.Runs` when listing or loading runs.
+    # Set by `Phantom.Biometrics` when listing or loading runs.
     field :completed_subjects, :integer, virtual: true, default: 0
     field :cover, :any, virtual: true
 
@@ -36,10 +43,11 @@ defmodule Phantom.Biometrics.Run do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def statuses, do: @statuses
+  @doc "Friction-ridge renderers, the default first: realistic (GPU) or a fast CPU draft."
+  def renderers, do: @renderers
 
-  @doc "Settings of a run being started or resumed."
-  def start_changeset(run, attrs) do
+  @doc "A new run, or an existing one being queued again (resumed)."
+  def queue_changeset(run, attrs) do
     run
     |> cast(attrs, [
       :name,
@@ -51,20 +59,28 @@ defmodule Phantom.Biometrics.Run do
       :prompt_version,
       :subject_count
     ])
-    |> validate_required([:name, :seed, :subject_count])
-    |> put_change(:status, "running")
+    |> validate_required([:name, :seed, :shots, :subject_count])
+    |> validate_inclusion(:renderer, @renderers)
+    |> put_change(:status, :queued)
     |> put_change(:error, nil)
-    |> put_change(:started_at, DateTime.utc_now())
     |> put_change(:finished_at, nil)
     |> unique_constraint(:name)
   end
 
-  @doc "A run reaching `status`, with an error message for failed runs."
-  def finish_changeset(run, status, error \\ nil) when status in @statuses do
-    change(run,
-      status: status,
-      error: error,
-      finished_at: if(status != "running", do: DateTime.utc_now())
-    )
+  @doc "Moves a run to `status`; finished, cancelled and failed runs get a finish time."
+  def status_changeset(run, status, error \\ nil) do
+    now = DateTime.utc_now()
+
+    run
+    |> change(status: status, error: error)
+    |> then(fn changeset ->
+      case status do
+        :running -> put_change(changeset, :started_at, run.started_at || now)
+        :queued -> changeset
+        _done -> put_change(changeset, :finished_at, now)
+      end
+    end)
   end
+
+  def active?(%__MODULE__{status: status}), do: status in [:queued, :running]
 end

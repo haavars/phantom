@@ -1,7 +1,7 @@
 # Synthetic friction-ridge service
 
 A small FastAPI service that generates **synthetic fingerprints, slaps, palmprints and tenprint cards** for
-ABIS testing. The Phoenix app talks to it over HTTP on `localhost:8001` (`Phantom.Biometrics.FrictionRidge`).
+ABIS testing. The Phoenix app talks to it over HTTP on `localhost:8001` (`Phantom.Services.Ridgegen`).
 
 It works in two stages, following [`docs/realistic-fingerprints-plan.md`](../docs/realistic-fingerprints-plan.md):
 
@@ -37,7 +37,7 @@ Without the tools the service still renders, unverified. `--diffusion` adds the 
 `requirements-gpu.txt`, IMPOSE and taming-transformers at pinned commits, and IMPOSE's rolled-print checkpoint
 (about 320 MB, from the authors' Google Drive). `GET /health` lists the renderers that are available.
 
-`mix phx.server` starts `server.py` for you (see `Phantom.PythonService`) and stops it on shutdown. To run it
+`mix phx.server` starts `server.py` for you (see `Phantom.Services.PythonProcess`) and stops it on shutdown. To run it
 yourself, set `BIOMETRICS_AUTOSTART=false` for the Phoenix app and start `python server.py` (`PORT` defaults to
 8001). Point the app at another host with `BIOMETRICS_SERVICE_URL`.
 

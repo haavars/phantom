@@ -24,6 +24,7 @@ defmodule Phantom.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Phantom.DataCase
+      use Oban.Testing, repo: Phantom.Repo
     end
   end
 

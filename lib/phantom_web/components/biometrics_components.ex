@@ -58,7 +58,31 @@ defmodule PhantomWeb.BiometricsComponents do
     Enum.find(shots, &(not MapSet.member?(done, &1)))
   end
 
-  @doc "Fraction of a run's images that are done, from a `Runner` progress snapshot."
+  attr :id, :string, default: nil
+  attr :status, :atom, required: true
+  attr :class, :string, default: "mt-2"
+
+  @doc "A run's status, as a small pill: running (with a spinner), queued, cancelled or failed."
+  def run_status(assigns) do
+    ~H"""
+    <span
+      id={@id}
+      class={[
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
+        @class,
+        @status == :running && "bg-primary/10 text-primary",
+        @status == :failed && "bg-error/10 text-error",
+        @status in [:queued, :cancelled] && "bg-base-200 text-base-content/60"
+      ]}
+    >
+      <.spinner :if={@status == :running} class="size-2.5" />
+      <.icon :if={@status == :queued} name="hero-clock-mini" class="size-3" />
+      {@status}
+    </span>
+    """
+  end
+
+  @doc "Fraction of a run's images that are done, from `Phantom.Biometrics.progress/1`."
   def run_fraction(%{total: total, shots: shots, done: done, subject: subject}) do
     per_subject = max(length(shots), 1)
     in_subject = if subject, do: length(subject.images), else: 0
@@ -184,7 +208,7 @@ defmodule PhantomWeb.BiometricsComponents do
     ~H"""
     <figure id={"tile-#{@subject.name}-#{@shot}"} class={["shrink-0", @width]}>
       <%= cond do %>
-        <% @record && @record.status == "ok" -> %>
+        <% @record && @record.status == :ok -> %>
           <.link
             patch={shot_path(@run, @subject.name, @shot, @focused?)}
             class={[
@@ -212,7 +236,7 @@ defmodule PhantomWeb.BiometricsComponents do
             title={@record.error}
           >
             <span class="font-medium">
-              {if @record.status == "skipped", do: "Skipped", else: "Failed"}
+              {if @record.status == :skipped, do: "Skipped", else: "Failed"}
             </span>
             <span class="line-clamp-3 text-error/80">{@record.error}</span>
           </div>

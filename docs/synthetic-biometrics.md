@@ -40,39 +40,34 @@ Run `mix phx.server`, which starts both services:
 
 The friction-ridge service needs its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`.
 This builds the NIST verification tools and installs the diffusion renderer; leave out `--diffusion` on a
-machine without an NVIDIA GPU and use `--renderer procedural`. Then, in another terminal:
+machine without an NVIDIA GPU and use the `procedural` renderer.
 
-```bash
-mix biometrics.generate --subjects 5 --seed 42                                  # default face shots
-mix biometrics.generate --shots faces,rolled,slaps,palms,card --captures 2      # everything, 2 captures
-mix biometrics.generate --shots rolled,slaps --renderer procedural              # fingerprints only, no GPU
+Start runs from the web UI (below), or from IEx attached to the running app (`iex -S mix phx.server`):
+
+```elixir
+Phantom.Biometrics.create_run(%{subjects: 5, seed: 42})                                    # default face shots
+Phantom.Biometrics.create_run(%{shots: ["faces", "rolled", "slaps", "palms", "card"], captures: 2})
+Phantom.Biometrics.create_run(%{shots: ["rolled", "slaps"], renderer: "procedural"})      # no GPU needed
 ```
 
-When it finishes it prints the friction-ridge quality report (see [Verification](#verification)) and where to
-open the run in the app. The run is recorded in the database like runs started from the app.
+`create_run/1` validates its parameters like the web form (`Phantom.Biometrics.RunRequest`) and queues the run,
+so runs from IEx and from the UI share one queue and show up on the same pages. In a release, run the same call
+with `bin/phantom rpc`.
 
-| Option | Default | Meaning |
+| Parameter | Default | Meaning |
 |---|---|---|
-| `--subjects N` | 3 | Number of fictional people |
-| `--seed S` | random | Run seed; every person, prompt and image seed is derived from it |
-| `--shots a,b,c` | `faces` | Shot ids and groups: `faces`, `rolled`, `slaps`, `palms`, `card` (see [Shots](#shots)) |
-| `--captures N` | 1 | Captures per finger and palm shot (max 3); captures after the first are mated pairs |
-| `--renderer R` | `diffusion` | Friction-ridge renderer: `diffusion` (realistic, GPU) or `procedural` (fast CPU draft) |
-| `--steps N` | 40 | Denoising steps for face shots |
-| `--out DIR` | `data/synthetic/biometrics` | Output root (gitignored) |
-| `--run NAME` | `<timestamp>-seed<S>` | Run folder name; reusing it resumes that run |
-| `--force` | off | Regenerate images that already exist |
-
-From IEx: `Phantom.Biometrics.Harness.run(subjects: 2, seed: 42, shots: ["rolled", "probe_glasses"])`.
-
-The task loads only config and `Req`, not the whole application. Starting the app would launch second copies of
-the Python services, competing with the ones `phx.server` already runs. The task only checks the services the
-chosen shots need, so a fingerprint-only run works without the GPU service.
+| `subjects` | 3 | Number of fictional people (max 100) |
+| `seed` | random | Run seed; every person, prompt and image seed is derived from it |
+| `shots` | every face shot and ridge group | Shot ids and groups: `faces`, `rolled`, `slaps`, `palms`, `card` (see [Shots](#shots)) |
+| `captures` | 1 | Captures per finger and palm shot (max 3); captures after the first are mated pairs |
+| `renderer` | `diffusion` | Friction-ridge renderer: `diffusion` (realistic, GPU) or `procedural` (fast CPU draft) |
+| `steps` | 40 | Denoising steps for face shots (20, 30, 40 or 50) |
+| `run` | `<timestamp>-seed<S>` | Run name |
 
 ## Web UI
 
 With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or use
-**Biometrics** in the top navigation.
+**Runs** in the top navigation.
 
 - **`/biometrics`**
   - **New run** form:
@@ -81,8 +76,9 @@ With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localho
     - friction-ridge groups, renderer and captures
     - an estimate of images and minutes
   - The status of both services. **Start run** is disabled until the services the selection needs are ready.
-  - The active run, with a progress bar, the shot being rendered, and **Cancel**.
-  - All runs, newest first, including runs started with `mix biometrics.generate`.
+    Runs started while another is rendering are queued behind it.
+  - The run rendering now, with a progress bar, the shot being rendered, and **Cancel**.
+  - All runs, newest first (including runs created from IEx), marked queued, running, cancelled or failed.
 - **`/biometrics/<run>`**
   - A **Friction-ridge quality** panel once the run has finished: verified, accepted, retried and rejected
     counts, NFIQ 2 and minutiae recall per impression type, and `bozorth3` mated against non-mated scores.
@@ -96,30 +92,36 @@ With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localho
     exact prompt. Friction-ridge shots show the ground truth (pattern, singular points, minutiae count,
     triradii), the verification results and a link to the ground-truth JSON. ←/→ moves between the subject's
     shots, and Esc closes it.
-  - **Resume** appears for runs with missing subjects or failed shots. It continues with the same seeds.
+  - **Cancel** stops a queued or running run. **Resume** appears for cancelled or failed runs, and for runs with
+    missing subjects or failed shots. It queues the subjects that aren't done; they keep the images already
+    rendered and render the rest with the same seeds.
 
-Runs execute in `Phantom.Biometrics.Runner`, a single background worker, not in the page's process:
+Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
 
-- Only one run is active at a time. The GPU renders one image at a time, and the ridge service uses every CPU
-  core.
-- A run continues if you close the page.
-- Progress reaches every open page through PubSub.
+- Creating a run queues one `GenerateSubject` job per subject. The `generation` queue runs one job at a time,
+  since the GPU renders one image at a time and the ridge service uses every CPU core. Runs queue behind each
+  other.
+- A run continues if you close the page, and survives a restart: a job interrupted by one is rescued after half an
+  hour and picks up where it stopped. Jobs retry up to 3 times; a job that runs out of attempts marks its run
+  failed. While a service a job needs isn't ready (the Qwen model takes a while to load), the job waits.
+- Every image, subject and run update is broadcast over PubSub (`Phantom.Biometrics.subscribe/0`), so open pages
+  fill in live.
 
-Runs are stored in Postgres (`Phantom.Biometrics.Runs`, see [Storage](#storage)). The run's status is kept
-there too: a run interrupted by a restart is marked `cancelled` when the app starts, and can be resumed. Images
-are served by id from `/images/:id`, and a friction-ridge image's ground truth from `/images/:id/ground-truth`.
+Runs are stored in Postgres (see [Storage](#storage)). Images are served by id from `/images/:id`, and a
+friction-ridge image's ground truth from `/images/:id/ground-truth`.
 
 ## How it works
 
 ```
-mix biometrics.generate  /  /biometrics (via Phantom.Biometrics.Runner)
-  └─ Phantom.Biometrics.Harness.run/1
-       ├─ Shots.expand/2              which shots, in which order
-       ├─ FaceAttributes.sample/2     who the person is
-       ├─ FacePrompts.prompt/2        what to ask the model for (face shots)
-       ├─ ImageGeneration.render/2    HTTP → python_inference/server.py   (Qwen-Image-2.1, GPU, :8000)
-       ├─ FrictionRidge.render/5      HTTP → python_biometrics/server.py  (ridgegen + diffusion + verify, :8001)
-       └─ Report.write/2              run quality report; FrictionRidge.match/2 → bozorth3
+Phantom.Biometrics.create_run/1        from the web form or IEx
+  └─ one Oban job per subject: Workers.GenerateSubject     (queue :generation, one at a time)
+       └─ Generator.generate_subject/2
+            ├─ FaceAttributes.sample/1              who the person is
+            ├─ Generator.Faces                      face shots: FacePrompts + Services.Qwen   (python_inference, GPU, :8000)
+            ├─ Generator.FrictionRidges             ridge shots: Services.Ridgegen            (python_biometrics, :8001)
+            ├─ Storage.put/2                        the image file
+            └─ Biometrics.save_image/2, complete_subject/1   rows + PubSub; the last subject builds the
+                                                             Report (bozorth3 via Services.Ridgegen.match/2)
 ```
 
 `Phantom.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
@@ -371,21 +373,22 @@ a faster face generator; see the plan document.
 
 ## Tests
 
-The Elixir tests stub both services with `Req.Test` and write to a temporary folder:
+The Elixir tests stub both services with `Req.Test`, run Oban in `:manual` testing mode (jobs are rendered by
+draining the queue in the test process) and store images under `tmp/test/biometrics`:
 
+- `test/phantom/biometrics_test.exs`: the context. Listing and reading runs, queueing one job per subject,
+  resume, cancel, failure, progress and events.
 - `test/phantom/biometrics/`
-  - **Attributes and prompts:** seeded people; every face shot has a valid spec and prompt.
-  - **Shots:** group expansion, ordering, captures, anchor only with face shots, unknown names.
-  - **Harness:**
-    - face anchor conditioning
-    - friction-ridge shots all come from the subject seed, and ground-truth JSON is written
-    - the renderer is passed through, and verified shots produce a report on the run
-    - resume, and failure handling
-  - **Runner, runs reader, request validation, the ridge client and the quality report.**
+  - **Generator:** face anchor conditioning; friction-ridge shots from the subject seed with ground truth;
+    the renderer; resuming keeps stored images; failed shots; the quality report.
+  - **GenerateSubject worker:** renders, snoozes while a service is down, stops for cancelled runs, marks runs
+    failed when discarded.
+  - **Attributes and prompts, shots, request validation, storage, gallery and the quality report.**
+- `test/phantom/services/`: the Qwen and ridgegen clients, and the supervised Python processes.
 - `test/phantom_web/`
-  - **Both pages:** form, services, run list, sections, tiles, detail views with prompt or ground truth, resume
-    and cancel.
-  - **The file controller.**
+  - **The pages:** form, services, run list and statuses, queued runs, sections, tiles, detail views with prompt
+    or ground truth, resume and cancel, the landing page and gallery.
+  - **The image controller.**
 
 `python_biometrics/tests/` (run with `.venv/bin/python -m pytest`) covers:
 
@@ -434,24 +437,24 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
 
 | File | What it does |
 |---|---|
-| `lib/mix/tasks/biometrics.generate.ex` | CLI entry point |
-| `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form, active run, run list |
-| `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run`: subject grid, live progress, detail view, resume/cancel |
-| `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, progress bar |
-| `lib/phantom_web/controllers/image_controller.ex` | Serves image files and ground truth by image id |
-| `lib/phantom/biometrics/runner.ex` | Background runner: one run at a time, PubSub progress, cancel |
-| `lib/phantom/biometrics/runs.ex` | Runs, subjects and images in the database: reading and recording them |
+| `lib/phantom/biometrics.ex` | The context: runs, subjects, images and identities; create, resume and cancel; events |
+| `lib/phantom/biometrics/workers/generate_subject.ex` | Oban worker rendering one subject; marks runs failed when discarded |
+| `lib/phantom/biometrics/generator.ex`, `generator/` | Renders a subject: seeds, anchor conditioning, face and friction-ridge shots |
 | `lib/phantom/biometrics/{run,subject,image}.ex` | Ecto schemas for the `runs`, `subjects` and `images` tables |
+| `lib/phantom/biometrics/run_request.ex` | Validates the parameters of a new run |
 | `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
-| `lib/phantom/biometrics/run_request.ex` | Validates the web form |
-| `lib/phantom/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, storing results |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
-| `lib/phantom/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service (`render`, `match`) |
 | `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
-| `lib/phantom/python_service.ex` | Supervises both Python services (`Phantom.QwenService`, `Phantom.BiometricsService`) |
+| `lib/phantom/biometrics/gallery.ex` | Identities for the landing page gallery |
 | `lib/phantom/biometrics/face_attributes.ex` | Seeded person sampling and `describe/1` |
 | `lib/phantom/biometrics/face_prompts.ex` | Shot specs, prompt templates, prompt version |
-| `lib/phantom/image_generation.ex` | Qwen HTTP client (`render/2`, `generate/2`, `health/0`) |
+| `lib/phantom/services/qwen.ex`, `ridgegen.ex` | HTTP clients for the two Python services |
+| `lib/phantom/services/python_process.ex` | Supervises both Python services as OS processes (`QwenProcess`, `RidgegenProcess`) |
+| `lib/phantom_web/live/landing_live.ex` | `/`: what Phantom is, and the gallery of identities |
+| `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form, the run rendering now, run list |
+| `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run` and `/:run/:subject`: subjects, live progress, detail view, resume/cancel |
+| `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, statuses, progress bar, report |
+| `lib/phantom_web/controllers/image_controller.ex` | Serves image files and ground truth by image id |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
 | `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |

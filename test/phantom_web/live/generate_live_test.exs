@@ -6,11 +6,11 @@ defmodule PhantomWeb.GenerateLiveTest do
   @fake_png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "not-a-real-png-but-good-enough-for-tests"
 
   setup do
-    # The LiveView polls GET /health on mount (Phantom.QwenService itself isn't
+    # The LiveView polls GET /health on mount (Phantom.Services.QwenProcess itself isn't
     # started in tests, see config/test.exs), so every test needs a stub for
     # it regardless of what it's testing. Individual tests can call
     # Req.Test.stub/2 again to also handle POST /generate.
-    Req.Test.stub(Phantom.ImageGeneration, &stub_ready/1)
+    Req.Test.stub(Phantom.Services.Qwen, &stub_ready/1)
     :ok
   end
 
@@ -41,7 +41,7 @@ defmodule PhantomWeb.GenerateLiveTest do
   end
 
   test "generates and displays an image for a valid prompt", %{conn: conn} do
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           stub_ready(conn)
@@ -80,7 +80,7 @@ defmodule PhantomWeb.GenerateLiveTest do
   end
 
   test "attaches a selected reference image to the generation request", %{conn: conn} do
-    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.Services.Qwen, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           stub_ready(conn)

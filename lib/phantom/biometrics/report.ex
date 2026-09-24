@@ -16,7 +16,8 @@ defmodule Phantom.Biometrics.Report do
   Runs without verified friction-ridge images get no report.
   """
 
-  alias Phantom.Biometrics.{FrictionRidge, Shots}
+  alias Phantom.Biometrics.Shots
+  alias Phantom.Services.Ridgegen
 
   # bozorth3's customary match threshold.
   @threshold 40
@@ -28,7 +29,7 @@ defmodule Phantom.Biometrics.Report do
   def build(subjects) do
     checks =
       for subject <- subjects,
-          %{status: "ok", meta: %{"verification" => %{} = check} = meta} <- subject.images,
+          %{status: :ok, meta: %{"verification" => %{} = check} = meta} <- subject.images,
           do: Map.put(check, "impression", meta["impression"])
 
     if checks == [] do
@@ -70,7 +71,7 @@ defmodule Phantom.Biometrics.Report do
   defp matching(subjects) do
     templates =
       for subject <- subjects,
-          %{status: "ok", ground_truth: %{} = truth, capture: capture, shot: shot} <-
+          %{status: :ok, ground_truth: %{} = truth, capture: capture, shot: shot} <-
             subject.images,
           %{group: "rolled", numeric_code: fgp} <- [Shots.spec(shot)],
           %{"verification" => %{"detected" => detected}} when is_list(detected) <- [truth],
@@ -101,7 +102,7 @@ defmodule Phantom.Biometrics.Report do
     index = templates |> Enum.with_index() |> Map.new()
     pairs = Enum.map(mated ++ non_mated, fn {a, b} -> {index[a], index[b]} end)
 
-    case FrictionRidge.match(Enum.map(templates, & &1.detected), pairs) do
+    case Ridgegen.match(Enum.map(templates, & &1.detected), pairs) do
       {:ok, scores} ->
         {mated_scores, non_mated_scores} = Enum.split(scores, length(mated))
         mated = Enum.zip(mated, mated_scores)

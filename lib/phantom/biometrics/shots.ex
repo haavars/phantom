@@ -4,7 +4,7 @@ defmodule Phantom.Biometrics.Shots do
 
     * face shots come from `Phantom.Biometrics.FacePrompts` (Qwen-Image-2.1)
     * friction-ridge shots (fingers, slaps, palms, the tenprint card) come from
-      `Phantom.Biometrics.FrictionRidge`
+      `Phantom.Services.Ridgegen`
 
   Friction-ridge shots can have several captures: `rolled_03` is the first
   capture of the right middle finger, `rolled_03_c2` a second one of the same

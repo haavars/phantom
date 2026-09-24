@@ -1,37 +1,38 @@
 defmodule PhantomWeb.BiometricsLive do
   @moduledoc """
-  Start synthetic-biometrics runs (faces, fingerprints, palms), follow the
-  active one, and browse past runs.
+  Queue synthetic-biometrics runs (faces, fingerprints, palms), follow the
+  one rendering now, and browse past runs.
 
-  Runs execute in `Phantom.Biometrics.Runner`, not in this process, so they
-  continue if the page is closed; runs from `mix biometrics.generate` are listed too.
+  Runs render in Oban jobs (see `Phantom.Biometrics`), not in this process,
+  so they continue if the page is closed; runs created from IEx with
+  `Phantom.Biometrics.create_run/1` show up here too.
   """
 
   use PhantomWeb, :live_view
 
   import PhantomWeb.BiometricsComponents
 
-  alias Phantom.Biometrics.{FacePrompts, FrictionRidge, Runner, RunRequest, Runs, Shots}
-  alias Phantom.ImageGeneration
+  alias Phantom.Biometrics
+  alias Phantom.Biometrics.{FacePrompts, RunRequest, Shots}
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Runner.subscribe()
+      Biometrics.subscribe()
       send(self(), :check_service_status)
     end
 
-    runs = Runs.list_runs()
+    runs = Biometrics.list_runs()
 
     socket =
       socket
       |> assign(:page_title, "Synthetic biometrics")
       |> assign(:services, %{face: :unknown, ridge: :unknown})
-      |> assign(:progress, Runner.current())
+      |> assign(:progress, Biometrics.current_progress())
       |> assign(:runs_empty?, runs == [])
       |> assign(:face_shots, FacePrompts.shots())
       |> assign(:ridge_groups, Shots.ridge_groups())
-      |> assign_form(RunRequest.changeset(%{}))
+      |> assign_form(Biometrics.change_run_request())
       |> stream_configure(:runs, dom_id: &"runs-#{&1.name}")
       |> stream(:runs, runs)
 
@@ -40,37 +41,25 @@ defmodule PhantomWeb.BiometricsLive do
 
   @impl true
   def handle_event("validate", %{"batch" => params}, socket) do
-    changeset = params |> RunRequest.changeset() |> Map.put(:action, :validate)
+    changeset = params |> Biometrics.change_run_request() |> Map.put(:action, :validate)
     {:noreply, assign_form(socket, changeset)}
   end
 
   def handle_event("start", %{"batch" => params}, socket) do
-    changeset = RunRequest.changeset(params)
-
-    with {:ok, request} <- Ecto.Changeset.apply_action(changeset, :insert),
-         :ok <- services_ready(socket.assigns.needs),
-         {:ok, run} <- Runner.start_run(RunRequest.to_opts(request)) do
-      {:noreply, push_navigate(socket, to: ~p"/biometrics/#{run}")}
-    else
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign_form(socket, changeset)}
-
-      {:error, :busy} ->
-        {:noreply, put_flash(socket, :error, "A run is already in progress.")}
-
-      {:error, message} when is_binary(message) ->
-        {:noreply, put_flash(socket, :error, message)}
+    case Biometrics.create_run(params) do
+      {:ok, run} -> {:noreply, push_navigate(socket, to: ~p"/biometrics/#{run.name}")}
+      {:error, changeset} -> {:noreply, assign_form(socket, changeset)}
     end
   end
 
-  def handle_event("cancel", _params, socket) do
-    :ok = Runner.cancel()
+  def handle_event("cancel", %{"run" => name}, socket) do
+    with {:ok, run} <- Biometrics.get_run(name), do: Biometrics.cancel_run(run)
     {:noreply, socket}
   end
 
   @impl true
   def handle_info(:check_service_status, socket) do
-    services = %{face: ImageGeneration.health(), ridge: FrictionRidge.health()}
+    services = Biometrics.service_status()
     all_ready? = Enum.all?(services, fn {_service, status} -> status == :ready end)
 
     Process.send_after(
@@ -82,48 +71,24 @@ defmodule PhantomWeb.BiometricsLive do
     {:noreply, assign(socket, :services, services)}
   end
 
-  def handle_info({:biometrics_run, event, progress}, socket) do
-    terminal? = event in [:finished, :cancelled, :failed]
-
+  def handle_info({:run_updated, run}, socket) do
     socket =
       socket
-      |> assign(:progress, if(terminal?, do: nil, else: progress))
-      |> refresh_run(event, progress.run)
+      |> assign(:runs_empty?, false)
+      |> assign(:progress, Biometrics.current_progress())
+      |> stream_insert(:runs, run, at: 0)
 
     socket =
-      if event == :failed,
-        do: put_flash(socket, :error, "Run #{progress.run} failed: #{progress.error}"),
+      if run.status == :failed,
+        do: put_flash(socket, :error, "Run #{run.name} failed: #{run.error}"),
         else: socket
 
     {:noreply, socket}
   end
 
-  # Re-insert the run's card when its subject count or running state changes.
-  defp refresh_run(socket, event, run)
-       when event in [:started, :subject_done, :finished, :cancelled, :failed] do
-    case Runs.summary(run) do
-      {:ok, summary} ->
-        socket
-        |> assign(:runs_empty?, false)
-        |> stream_insert(:runs, summary, at: 0)
-
-      {:error, :not_found} ->
-        socket
-    end
-  end
-
-  defp refresh_run(socket, _event, _run), do: socket
-
-  # Checks the services the selected shots need, right before starting.
-  defp services_ready(needs) do
-    checks = [
-      {needs.face, &ImageGeneration.health/0, "The Qwen-Image-2.1 service isn't ready."},
-      {needs.ridge, &FrictionRidge.health/0, "The friction-ridge service isn't ready."}
-    ]
-
-    Enum.find_value(checks, :ok, fn {needed?, health, message} ->
-      if needed? and health.() != :ready, do: {:error, message}
-    end)
+  # An image finished somewhere: move the active run's progress along.
+  def handle_info({:subject_updated, _subject}, socket) do
+    {:noreply, assign(socket, :progress, Biometrics.current_progress())}
   end
 
   defp assign_form(socket, changeset) do
@@ -153,8 +118,10 @@ defmodule PhantomWeb.BiometricsLive do
     })
   end
 
-  defp can_start?(services, needs, progress) do
-    is_nil(progress) and (needs.face or needs.ridge) and
+  # Runs queue behind the active one, but only start when the services their
+  # shots need are up.
+  defp can_start?(services, needs) do
+    (needs.face or needs.ridge) and
       (not needs.face or services.face == :ready) and
       (not needs.ridge or services.ridge == :ready)
   end
@@ -331,7 +298,7 @@ defmodule PhantomWeb.BiometricsLive do
                 type="submit"
                 variant="primary"
                 id="start-run"
-                disabled={not can_start?(@services, @needs, @progress)}
+                disabled={not can_start?(@services, @needs)}
                 phx-disable-with="Starting…"
               >
                 Start run
@@ -364,7 +331,12 @@ defmodule PhantomWeb.BiometricsLive do
                 >
                   Watch
                 </.link>
-                <.action_button variant="danger" id="cancel-run" phx-click="cancel">
+                <.action_button
+                  variant="danger"
+                  id="cancel-run"
+                  phx-click="cancel"
+                  phx-value-run={@progress.run}
+                >
                   Cancel
                 </.action_button>
               </div>
@@ -388,7 +360,9 @@ defmodule PhantomWeb.BiometricsLive do
               id="runs-empty"
               class="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60"
             >
-              No runs yet. Start one on the left, or run <code class="font-mono">mix biometrics.generate</code>.
+              No runs yet. Start one on the left, or call
+              <code class="font-mono">Phantom.Biometrics.create_run/1</code>
+              from IEx.
             </div>
             <div id="runs" phx-update="stream" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <.link
@@ -416,28 +390,11 @@ defmodule PhantomWeb.BiometricsLive do
                     <span>seed {run.seed}</span>
                     <span :if={run.prompt_version}>· {run.prompt_version}</span>
                   </p>
-                  <span
-                    :if={
-                      run.status in ["cancelled", "failed"] and
-                        !(@progress && @progress.run == run.name)
-                    }
+                  <.run_status
+                    :if={run.status != :finished}
                     id={"run-status-#{run.name}"}
-                    class={[
-                      "mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      if(run.status == "failed",
-                        do: "bg-error/10 text-error",
-                        else: "bg-base-200 text-base-content/60"
-                      )
-                    ]}
-                  >
-                    {run.status}
-                  </span>
-                  <span
-                    :if={@progress && @progress.run == run.name}
-                    class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
-                  >
-                    <.spinner class="size-2.5" /> running
-                  </span>
+                    status={run.status}
+                  />
                 </div>
               </.link>
             </div>
