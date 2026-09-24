@@ -59,6 +59,48 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#shot-detail")
   end
 
+  test "offers the identity as a download: everything, faces or prints", %{conn: conn} do
+    run = create_run(subjects: 1, shots: ["mugshot_left_profile", "rolled_02"])
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001")
+
+    assert has_element?(view, "#download-toggle")
+
+    assert has_element?(
+             view,
+             ~s(#download-all[href="/biometrics/#{run}/subject_001/download?include=all"]),
+             "3 images"
+           )
+
+    assert has_element?(view, ~s(#download-faces[href$="include=faces"]), "2 images")
+    assert has_element?(view, ~s(#download-prints[href$="include=prints"]), "1 image")
+    refute has_element?(view, "#download-menu", "Still rendering")
+
+    # On the run page, each subject has a download link too.
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+
+    assert has_element?(
+             view,
+             ~s(#download-subject_001[href="/biometrics/#{run}/subject_001/download"])
+           )
+  end
+
+  test "only offers the downloads that have images", %{conn: conn} do
+    run = create_run(subjects: 1, shots: ["rolled_02"])
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001")
+    assert has_element?(view, "#download-all")
+    assert has_element?(view, "#download-prints")
+    refute has_element?(view, "#download-faces")
+  end
+
+  test "downloads the shot in the detail view", %{conn: conn, run: run} do
+    {:ok, view, _html} =
+      live(conn, ~p"/biometrics/#{run}?#{[subject: "subject_001", shot: "mugshot_frontal"]}")
+
+    assert has_element?(view, ~s(#download-shot[href$="?download=1"]))
+  end
+
   test "shows one identity with all of its images", %{conn: conn, run: run} do
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_002")
 

@@ -22,6 +22,7 @@ defmodule PhantomWeb.Router do
     live "/biometrics", BiometricsLive, :index
     live "/biometrics/:run", BiometricsRunLive, :show
     live "/biometrics/:run/:subject", BiometricsRunLive, :subject
+    get "/biometrics/:run/:subject/download", DownloadController, :subject
 
     get "/images/:id", ImageController, :show
     get "/images/:id/ground-truth", ImageController, :ground_truth

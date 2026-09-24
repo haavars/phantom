@@ -27,6 +27,7 @@ defmodule Phantom.Biometrics do
   alias Phantom.Repo
 
   alias Phantom.Biometrics.{
+    Export,
     FacePrompts,
     Gallery,
     Image,
@@ -396,6 +397,30 @@ defmodule Phantom.Biometrics do
       nil -> {:error, :not_found}
       image -> {:ok, image}
     end
+  end
+
+  ## Downloads
+
+  @doc """
+  Plans the download of one subject as a ZIP (see `Phantom.Biometrics.Export`):
+  `include` is `"all"`, `"faces"` or `"prints"`. Returns `{:ok, export}` or
+  `{:error, :not_found}`; `export_stream/1` then produces the archive.
+  """
+  def export_subject(run_name, subject_name, include \\ "all") do
+    with {:ok, subject} <- get_subject(run_name, subject_name) do
+      {:ok, subject |> Repo.preload(:run) |> Export.new(include)}
+    end
+  end
+
+  defdelegate export_stream(export), to: Export, as: :stream
+
+  @doc "What each download of `subject` (with its images) holds: files and bytes per include."
+  defdelegate download_summary(subject), to: Export, as: :summary
+
+  @doc "The file name to save one image under: `PH-5167-ED5B_fgp02_R_index.png`."
+  def download_name(%Image{} = image) do
+    image = Repo.preload(image, :subject)
+    Export.download_name(image, image.subject)
   end
 
   @doc "A local path to an image's file, to send it."

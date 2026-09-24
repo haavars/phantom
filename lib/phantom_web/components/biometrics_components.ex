@@ -94,6 +94,11 @@ defmodule PhantomWeb.BiometricsComponents do
   def format_time(%DateTime{} = time), do: Calendar.strftime(time, "%Y-%m-%d %H:%M UTC")
   def format_time(_time), do: "–"
 
+  @doc "A file size for people: `\"840 KB\"`, `\"37 MB\"`."
+  def format_bytes(bytes) when bytes < 1_000_000, do: "#{max(round(bytes / 1000), 1)} KB"
+  def format_bytes(bytes) when bytes < 10_000_000, do: "#{Float.round(bytes / 1_000_000, 1)} MB"
+  def format_bytes(bytes), do: "#{round(bytes / 1_000_000)} MB"
+
   def format_duration(nil), do: "–"
   def format_duration(ms), do: "#{Float.round(ms / 1000, 1)} s"
 

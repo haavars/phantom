@@ -12,6 +12,12 @@ defmodule Phantom.Biometrics.Storage do
   @doc "Reads the data stored under `key`."
   @callback read(key :: String.t()) :: {:ok, binary()} | {:error, term()}
 
+  @doc """
+  The data stored under `key` as a stream of binaries, to send large files
+  without reading them into memory, or `{:error, reason}`.
+  """
+  @callback stream(key :: String.t()) :: {:ok, Enumerable.t()} | {:error, term()}
+
   @doc "True when something is stored under `key`."
   @callback exists?(key :: String.t()) :: boolean()
 
@@ -34,6 +40,7 @@ defmodule Phantom.Biometrics.Storage do
   end
 
   def read(key), do: adapter().read(key)
+  def stream(key), do: adapter().stream(key)
   def exists?(key), do: adapter().exists?(key)
   def local_path(key), do: adapter().local_path(key)
 

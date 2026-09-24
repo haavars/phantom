@@ -29,6 +29,14 @@ defmodule Phantom.Biometrics.Storage.Local do
   end
 
   @impl true
+  def stream(key) do
+    case local_path(key) do
+      {:ok, path} -> {:ok, File.stream!(path, 64 * 1024)}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @impl true
   def exists?(key) do
     case path(key) do
       {:ok, path} -> File.regular?(path)

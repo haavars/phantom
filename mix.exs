@@ -68,6 +68,8 @@ defmodule Phantom.MixProject do
        depth: 1},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
+      # Streams a subject's images to the browser as a ZIP (Biometrics.Export).
+      {:zstream, "~> 0.6.7"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

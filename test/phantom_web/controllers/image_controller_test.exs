@@ -19,6 +19,21 @@ defmodule PhantomWeb.ImageControllerTest do
     assert response_content_type(conn, :png)
   end
 
+  test "saves an image under its person's name with ?download=1", %{conn: conn} do
+    run = create_run(subjects: 1, shots: ["rolled_02"])
+    image = image(run, "rolled_02")
+    {:ok, subject} = Biometrics.get_subject(run, "subject_001")
+    code = Phantom.Biometrics.Gallery.code(subject.seed)
+
+    assert conn |> get(~p"/images/#{image.id}") |> get_resp_header("content-disposition") == []
+
+    conn = get(conn, ~p"/images/#{image.id}?download=1")
+    assert response(conn, 200) == png()
+
+    assert get_resp_header(conn, "content-disposition") ==
+             [~s(attachment; filename="#{code}_fgp02_R_index.png")]
+  end
+
   test "serves a friction-ridge image's ground truth", %{conn: conn} do
     run = create_run(subjects: 1, shots: ["rolled_03"])
     image = image(run, "rolled_03")
