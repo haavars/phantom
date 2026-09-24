@@ -23,7 +23,10 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#group-rolled[checked]")
     assert has_element?(view, "#batch_captures")
     assert has_element?(view, "#runs-empty")
-    assert has_element?(view, "#nav-biometrics")
+    assert has_element?(view, "#nav-biometrics[aria-current=page]")
+    refute has_element?(view, "#nav-home[aria-current]")
+    # Already on the page with the new-run form.
+    refute has_element?(view, "#nav-new-run")
   end
 
   test "lists existing runs", %{conn: conn} do

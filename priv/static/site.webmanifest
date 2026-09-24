@@ -1,0 +1,12 @@
+{
+  "name": "Phantom · Synthetic biometrics",
+  "short_name": "Phantom",
+  "icons": [
+    { "src": "/images/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/images/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#5b42f3",
+  "background_color": "#f5f5f8",
+  "display": "standalone",
+  "start_url": "/"
+}

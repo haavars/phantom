@@ -543,7 +543,7 @@ defmodule PhantomWeb.BiometricsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} wide>
+    <Layouts.app flash={@flash} wide active={:runs}>
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 class="text-2xl font-semibold tracking-tight">Synthetic biometrics</h1>
@@ -945,13 +945,13 @@ defmodule PhantomWeb.BiometricsLive do
         <div
           id="runs"
           phx-update="stream"
-          class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         >
           <.link
             :for={{dom_id, run} <- @streams.runs}
             id={dom_id}
             navigate={~p"/biometrics/#{run.name}"}
-            class="group flex gap-4 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+            class="group flex min-w-0 gap-4 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
           >
             <div class="aspect-[4/5] w-20 shrink-0 overflow-hidden rounded-lg bg-white">
               <img

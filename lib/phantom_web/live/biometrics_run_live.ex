@@ -367,7 +367,7 @@ defmodule PhantomWeb.BiometricsRunLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} wide>
+    <Layouts.app flash={@flash} wide active={:runs}>
       <.identity_header :if={@focused} run={@run} subject={@focused} />
 
       <div :if={!@focused} class="flex flex-wrap items-end justify-between gap-4">

@@ -14,7 +14,10 @@ defmodule PhantomWeb.LandingLiveTest do
     assert has_element?(view, "#how-it-works")
     assert has_element?(view, "#modalities")
     refute has_element?(view, "#identities article")
-    assert has_element?(view, "#nav-home")
+    assert has_element?(view, "#nav-home[aria-current=page]")
+    assert has_element?(view, ~s(#brand img[src="/images/icon.svg"]))
+    assert has_element?(view, "#nav-new-run")
+    assert has_element?(view, "#site-footer", "None of these people exist")
   end
 
   test "lists identities that link to their subject", %{conn: conn} do

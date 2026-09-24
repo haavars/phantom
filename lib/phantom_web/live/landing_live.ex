@@ -49,7 +49,7 @@ defmodule PhantomWeb.LandingLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} wide>
+    <Layouts.app flash={@flash} wide active={:overview}>
       <.hero stats={@stats} face={@featured_face} print={@featured_print} />
       <.how_it_works />
       <.modalities />
@@ -124,14 +124,6 @@ defmodule PhantomWeb.LandingLive do
           />
         </div>
       </section>
-
-      <footer class="mt-20 border-t border-base-300 pt-6 pb-4 text-xs text-base-content/50">
-        <p class="flex items-start gap-2">
-          <.icon name="hero-shield-exclamation-mini" class="mt-px size-4 shrink-0" />
-          Synthetic test data. None of these people exist, and every file is labelled as synthetic.
-          Don't use it as evidence of matching accuracy or send it to live systems.
-        </p>
-      </footer>
     </Layouts.app>
     """
   end
@@ -271,9 +263,9 @@ defmodule PhantomWeb.LandingLive do
     assigns =
       assign(assigns, :steps, [
         {"hero-sparkles", "One seed, one person",
-         "A single number fixes everything about a subject: age, sex, ancestry, hair and build, and a master ridge pattern for each finger and palm. The same seed always gives the same person."},
+         "A single number fixes everything about a subject: age, sex, ancestry, hair and build, and a master ridge pattern for each finger and palm. Fix any trait for a whole run, and the rest is sampled per person."},
         {"hero-camera", "A consistent face",
-         "Qwen-Image-2.1 renders a frontal mugshot first. Profiles, the ICAO portrait and the mated probes (aged, glasses, re-booking) are generated from it, so every shot shows the same face."},
+         "Qwen-Image-2.1 renders a frontal mugshot first. Profiles, the ICAO portrait and the mated probes (aged, glasses, re-booking) are generated from it, each probe with its own slight pose and expression."},
         {"hero-finger-print", "Realistic friction ridges",
          "Each master pattern is pressed into rolled and plain impressions with its own distortion, contact area and ink. A diffusion model trained on real rolled prints then adds lifelike ink texture."},
         {"hero-check-badge", "Checked against ground truth",
@@ -330,9 +322,9 @@ defmodule PhantomWeb.LandingLive do
             Every modality, one person
           </h2>
           <p class="mt-3 text-sm leading-relaxed text-base-content/65">
-            All images of a subject belong together, and extra captures give you mated pairs. Runs
-            are written to disk with an HTML contact sheet, so you can feed them straight into a
-            test harness.
+            All images of a subject belong together, and extra captures give you mated pairs. Every
+            run keeps its seeds, prompts and ground truth, so any image can be rendered again
+            exactly, and shots can be added to a run later.
           </p>
         </div>
         <ul class="grid gap-px overflow-hidden rounded-2xl border border-base-300 bg-base-300 sm:grid-cols-2">
