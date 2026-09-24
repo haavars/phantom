@@ -31,7 +31,7 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v6"
+  @version "faces-v7"
 
   @mugshot {896, 1120}
   @icao {896, 1152}
@@ -136,16 +136,20 @@ defmodule Phantom.Biometrics.FacePrompts do
     )
   end
 
+  # Qwen overdoes "15 years older" (18 to 33 came out looking 55), so the
+  # ageing is spelled out for the age the person reaches, and capped.
   def prompt("probe_aged", attrs) do
+    age = attrs.age + 15
+
     edit(
       attrs,
-      "Edit the reference photo to show the same person 15 years older, now #{attrs.age + 15} years old, at a later police booking.",
+      "Edit the reference photo to show the same person 15 years later, now #{age} years old, at a later police booking.",
       [
-        "clearly visible ageing: deeper forehead lines, crow's feet around the eyes, deeper lines from nose to mouth, looser skin under the eyes and jaw, thinner lips and a few age spots",
-        "the hair is #{aged_hair(attrs)}",
+        ageing(age),
+        "the hair is #{aged_hair(attrs, age)}",
         "#{subject(attrs)} now wears #{alternate_clothing(attrs, 3)}"
       ] ++ varied("probe_aged", attrs),
-      "head and upper shoulders, plain mid-grey background, even flash lighting"
+      "head and upper shoulders, plain mid-grey background, even flash lighting. #{pronoun(attrs)} must look #{age}, no older"
     )
   end
 
@@ -316,10 +320,36 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   defp side(attrs), do: if(rem(attrs.seed, 2) == 0, do: "left", else: "right")
 
-  defp aged_hair(attrs) do
-    if attrs.hair_color in ["grey", "white", "salt-and-pepper"],
-      do: "whiter and thinner",
-      else: "noticeably greyer and thinner"
+  defp ageing(age) when age <= 35 do
+    "only subtle, natural maturing for someone of #{age}: the face is a little less round and youthful, with slightly more defined cheekbones and jaw, and at most very faint lines at the corners of the eyes; no wrinkles, no sagging skin, no age spots"
+  end
+
+  defp ageing(age) when age <= 49 do
+    "moderate, realistic ageing for someone of #{age}: fine lines on the forehead and at the corners of the eyes, slightly deeper lines from nose to mouth and slightly less firm skin; no deep wrinkles, no sagging, no age spots"
+  end
+
+  defp ageing(age) when age <= 64 do
+    "clear ageing for someone of #{age}: forehead lines, crow's feet around the eyes, deeper lines from nose to mouth, and slightly looser skin under the eyes and along the jaw"
+  end
+
+  defp ageing(age) do
+    "strong ageing for someone of #{age}: deep forehead lines, crow's feet, deep lines from nose to mouth, looser skin under the eyes and jaw, thinner lips and a few age spots"
+  end
+
+  @grey ["grey", "white", "salt-and-pepper"]
+
+  defp aged_hair(attrs, age) do
+    grey? = attrs.hair_color in @grey
+
+    cond do
+      age <= 35 -> "the same colour as in the reference, with no grey"
+      age <= 49 and grey? -> "a little whiter"
+      age <= 49 -> "the same colour, with a few grey strands at the temples"
+      age <= 64 and grey? -> "whiter"
+      age <= 64 -> "noticeably greyer, especially at the temples, and a little thinner"
+      grey? -> "whiter and thinner"
+      true -> "mostly grey and thinner"
+    end
   end
 
   defp subject(%{sex: :female}), do: "she"

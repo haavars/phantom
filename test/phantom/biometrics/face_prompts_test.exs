@@ -118,6 +118,35 @@ defmodule Phantom.Biometrics.FacePromptsTest do
     end
   end
 
+  test "the aged probe ages people as much as the age they reach, and no more" do
+    aged = fn age, opts ->
+      attrs = %{FaceAttributes.sample(3, opts) | age: age}
+      FacePrompts.prompt("probe_aged", attrs)
+    end
+
+    # 18 to 33: maturing, not wrinkles, grey hair or age spots.
+    young = aged.(18, sex: :female)
+    assert young =~ "now 33 years old"
+    assert young =~ "only subtle, natural maturing for someone of 33"
+    assert young =~ "with no grey"
+    assert young =~ "She must look 33, no older"
+    refute young =~ "crow's feet"
+    refute young =~ ~r/greyer|thinner|age spots,/
+
+    middle = aged.(30, [])
+    assert middle =~ "moderate, realistic ageing for someone of 45"
+    assert middle =~ "a few grey strands" or middle =~ "a little whiter"
+
+    older = aged.(40, [])
+    assert older =~ "clear ageing for someone of 55"
+    refute older =~ "a few age spots"
+
+    oldest = aged.(60, hair_color: "black")
+    assert oldest =~ "strong ageing for someone of 75"
+    assert oldest =~ "a few age spots"
+    assert oldest =~ "mostly grey and thinner"
+  end
+
   test "the anchor prompt describes the person, conditioned shots refer to the reference" do
     attrs = FaceAttributes.sample(5)
 
