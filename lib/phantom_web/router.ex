@@ -21,6 +21,7 @@ defmodule PhantomWeb.Router do
     live "/", LandingLive, :index
     live "/biometrics", BiometricsLive, :index
     live "/biometrics/:run", BiometricsRunLive, :show
+    live "/biometrics/:run/:subject", BiometricsRunLive, :subject
 
     get "/biometrics-files/:run/:subject/:file", BiometricsFileController, :show
   end

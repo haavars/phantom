@@ -71,11 +71,11 @@ defmodule Phantom.Biometrics.Gallery do
     |> Map.delete(nil)
   end
 
-  # A stable, readable identity code from the subject seed: PH-3A9F-12C4.
-  defp code(seed) when is_integer(seed) do
+  @doc "A stable, readable identity code from a subject seed: `PH-3A9F-12C4`."
+  def code(seed) when is_integer(seed) do
     hex = seed |> rem(0x100000000) |> Integer.to_string(16) |> String.pad_leading(8, "0")
     "PH-" <> String.slice(hex, 0, 4) <> "-" <> String.slice(hex, 4, 4)
   end
 
-  defp code(_seed), do: "PH-????-????"
+  def code(_seed), do: "PH-????-????"
 end

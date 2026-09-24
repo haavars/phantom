@@ -63,6 +63,45 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#shot-detail")
   end
 
+  test "shows one identity with all of its images", %{conn: conn, run: run} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_002")
+
+    assert has_element?(view, "#identity-header")
+    assert has_element?(view, ~s(#back-to-run[href="/biometrics/#{run}"]))
+    assert has_element?(view, "#subjects-subject_002")
+    refute has_element?(view, "#subjects-subject_001")
+    assert has_element?(view, "#tile-subject_002-mugshot_frontal img")
+    assert has_element?(view, "#tile-subject_002-mugshot_left_profile img")
+    refute has_element?(view, "#run-meta")
+  end
+
+  test "moves between shots and closes back to the identity", %{conn: conn, run: run} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001")
+
+    view |> element("#tile-subject_001-mugshot_frontal a") |> render_click()
+    assert_patch(view, ~p"/biometrics/#{run}/subject_001?#{[shot: "mugshot_frontal"]}")
+    assert has_element?(view, "#shot-detail")
+
+    view |> element("#next-shot") |> render_click()
+    assert_patch(view, ~p"/biometrics/#{run}/subject_001?#{[shot: "mugshot_left_profile"]}")
+
+    view |> element("#shot-detail") |> render_keydown(%{"key" => "Escape"})
+    assert_patch(view, ~p"/biometrics/#{run}/subject_001")
+    refute has_element?(view, "#shot-detail")
+    assert has_element?(view, "#identity-header")
+  end
+
+  test "links each subject to its identity page", %{conn: conn, run: run} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+
+    assert has_element?(view, ~s(#open-subject_001[href="/biometrics/#{run}/subject_001"]))
+  end
+
+  test "redirects to the run for unknown subjects", %{conn: conn, run: run} do
+    assert {:error, {:live_redirect, %{to: to}}} = live(conn, ~p"/biometrics/#{run}/subject_999")
+    assert to == ~p"/biometrics/#{run}"
+  end
+
   test "resumes an incomplete run and shows new subjects live", %{
     conn: conn,
     run: run,

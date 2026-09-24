@@ -36,7 +36,7 @@ defmodule PhantomWeb.LandingLiveTest do
 
     assert has_element?(
              view,
-             ~s(#{face} a[href="/biometrics/faces?shot=mugshot_frontal&subject=subject_001"])
+             ~s(#{face} a[href="/biometrics/faces/subject_001"])
            )
 
     assert has_element?(
@@ -46,7 +46,7 @@ defmodule PhantomWeb.LandingLiveTest do
 
     assert has_element?(
              view,
-             ~s(#{ridge} a[href="/biometrics/ridges?shot=rolled_02&subject=subject_001"])
+             ~s(#{ridge} a[href="/biometrics/ridges/subject_001"])
            )
 
     assert has_element?(

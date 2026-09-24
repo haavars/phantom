@@ -453,17 +453,8 @@ defmodule PhantomWeb.LandingLive do
   defp file_url(identity, file),
     do: ~p"/biometrics-files/#{identity.run}/#{identity.subject}/#{file}"
 
-  defp subject_path(identity) do
-    shot =
-      cond do
-        identity.portrait -> Path.rootname(identity.portrait)
-        identity.prints != [] -> Path.rootname(hero_print(identity))
-        true -> nil
-      end
-
-    params = Enum.reject([subject: identity.subject, shot: shot], fn {_k, v} -> is_nil(v) end)
-    ~p"/biometrics/#{identity.run}?#{params}"
-  end
+  # The identity's own page, with every image of them.
+  defp subject_path(identity), do: ~p"/biometrics/#{identity.run}/#{identity.subject}"
 
   # The right index is the customary finger to show; fall back to the first.
   defp hero_print(%{prints: prints}) do

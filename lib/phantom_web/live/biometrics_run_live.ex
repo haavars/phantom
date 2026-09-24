@@ -4,37 +4,52 @@ defmodule PhantomWeb.BiometricsRunLive do
   shots, filled in live while the run is active, plus a detail view
   (`?subject=...&shot=...`) with the full image and its prompt or ground truth.
   Incomplete or partly failed runs can be resumed.
+
+  `/biometrics/:run/:subject` shows one subject (one synthetic identity) on its
+  own, with every image of it; the detail view there is `?shot=...`.
   """
 
   use PhantomWeb, :live_view
 
   import PhantomWeb.BiometricsComponents
 
-  alias Phantom.Biometrics.{FacePrompts, FrictionRidge, Runner, Runs, Shots}
+  alias Phantom.Biometrics.{FacePrompts, FrictionRidge, Gallery, Runner, Runs, Shots}
   alias Phantom.ImageGeneration
 
   @terminal [:finished, :cancelled, :failed]
 
   @impl true
-  def mount(%{"run" => name}, _session, socket) do
+  def mount(%{"run" => name} = params, _session, socket) do
     if connected?(socket), do: Runner.subscribe()
 
     progress = Runner.current()
     active = if match?(%{run: ^name}, progress), do: progress
+    focus = if socket.assigns.live_action == :subject, do: params["subject"]
 
     case load_run(name, active) do
       {:ok, run, subjects} ->
-        socket =
-          socket
-          |> assign(:page_title, name)
-          |> assign(:run, run)
-          |> assign(:progress, active)
-          |> assign(:busy?, not is_nil(progress) and is_nil(active))
-          |> assign(:has_failures?, failures?(subjects))
-          |> assign(:selected, nil)
-          |> stream(:subjects, subjects)
+        focused = focus && Enum.find(subjects, &(&1.id == focus))
 
-        {:ok, socket}
+        if focus && is_nil(focused) do
+          {:ok,
+           socket
+           |> put_flash(:error, "Subject #{focus} not found in #{name}.")
+           |> push_navigate(to: ~p"/biometrics/#{name}")}
+        else
+          socket =
+            socket
+            |> assign(:page_title, if(focused, do: Gallery.code(focused.seed), else: name))
+            |> assign(:run, run)
+            |> assign(:focus, focus)
+            |> assign(:focused, focused)
+            |> assign(:progress, active)
+            |> assign(:busy?, not is_nil(progress) and is_nil(active))
+            |> assign(:has_failures?, failures?(subjects))
+            |> assign(:selected, nil)
+            |> stream(:subjects, in_focus(subjects, focus))
+
+          {:ok, socket}
+        end
 
       {:error, :not_found} ->
         {:ok,
@@ -168,11 +183,14 @@ defmodule PhantomWeb.BiometricsRunLive do
         {:noreply, socket}
 
       :close ->
-        {:noreply, push_patch(socket, to: ~p"/biometrics/#{socket.assigns.run.name}")}
+        {:noreply, push_patch(socket, to: page_path(socket.assigns.run, socket.assigns.focus))}
 
       shot ->
         {:noreply,
-         push_patch(socket, to: shot_path(socket.assigns.run.name, selected.subject.id, shot))}
+         push_patch(socket,
+           to:
+             shot_path(socket.assigns.run.name, selected.subject.id, shot, !!socket.assigns.focus)
+         )}
     end
   end
 
@@ -198,10 +216,10 @@ defmodule PhantomWeb.BiometricsRunLive do
           socket
           |> assign(:progress, progress)
           |> update(:run, &%{&1 | completed: &1.completed + 1})
-          |> stream_insert(:subjects, progress.subject)
+          |> insert_subject(progress.subject)
 
         progress.subject ->
-          socket |> assign(:progress, progress) |> stream_insert(:subjects, progress.subject)
+          socket |> assign(:progress, progress) |> insert_subject(progress.subject)
 
         true ->
           assign(socket, :progress, progress)
@@ -222,7 +240,7 @@ defmodule PhantomWeb.BiometricsRunLive do
         socket
         |> assign(:run, run)
         |> assign(:has_failures?, failures?(subjects))
-        |> stream(:subjects, subjects, reset: true)
+        |> stream(:subjects, in_focus(subjects, socket.assigns.focus), reset: true)
 
       {:error, :not_found} ->
         socket
@@ -283,14 +301,112 @@ defmodule PhantomWeb.BiometricsRunLive do
     "#{cores} core#{if cores != 1, do: "s"}, #{deltas} delta#{if deltas != 1, do: "s"}"
   end
 
-  defp shot_path(run, subject_id, shot),
-    do: ~p"/biometrics/#{run}?#{[subject: subject_id, shot: shot]}"
+  defp in_focus(subjects, nil), do: subjects
+  defp in_focus(subjects, focus), do: Enum.filter(subjects, &(&1.id == focus))
+
+  defp insert_subject(socket, subject) do
+    if socket.assigns.focus in [nil, subject.id],
+      do: stream_insert(socket, :subjects, subject),
+      else: socket
+  end
+
+  # Where the detail view closes to: the run, or the focused subject.
+  defp page_path(run, nil), do: ~p"/biometrics/#{run.name}"
+  defp page_path(run, focus), do: ~p"/biometrics/#{run.name}/#{focus}"
+
+  defp sex_age(attributes) do
+    sex =
+      case attributes["sex"] do
+        "female" -> "Female"
+        "male" -> "Male"
+        other -> other
+      end
+
+    [sex, attributes["age"] && "#{attributes["age"]} years"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp sentence(text) do
+    {first, rest} = String.split_at(text, 1)
+    String.upcase(first) <> rest
+  end
+
+  attr :run, :map, required: true
+  attr :subject, :map, required: true
+
+  # The focused page's header: who this synthetic person is, and where they came from.
+  defp identity_header(assigns) do
+    assigns =
+      assigns
+      |> assign(:attributes, Map.get(assigns.subject, :attributes) || %{})
+      |> assign(
+        :images,
+        Enum.count(assigns.subject.shots, &(&1.status in ["ok", "existing"]))
+      )
+
+    ~H"""
+    <div id="identity-header" class="space-y-4">
+      <nav class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-base-content/60">
+        <.link
+          navigate={~p"/#gallery"}
+          id="back-to-gallery"
+          class="transition hover:text-base-content"
+        >
+          ← Gallery
+        </.link>
+        <span class="text-base-content/30">/</span>
+        <.link
+          navigate={~p"/biometrics/#{@run.name}"}
+          id="back-to-run"
+          class="font-mono transition hover:text-base-content"
+        >
+          {@run.name}
+        </.link>
+      </nav>
+      <div class="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm">
+        <div class="min-w-0 max-w-3xl">
+          <div class="flex flex-wrap items-center gap-3">
+            <h1 class="font-mono text-2xl font-semibold tracking-wide">
+              {Gallery.code(@subject.seed)}
+            </h1>
+            <span class="rounded bg-base-content px-1.5 py-0.5 text-[10px] font-bold tracking-[0.15em] text-base-100">
+              SYNTHETIC
+            </span>
+            <span :if={sex_age(@attributes) != ""} class="text-sm text-base-content/60">
+              {sex_age(@attributes)}
+            </span>
+          </div>
+          <p :if={@subject.description} class="mt-2 text-sm leading-relaxed text-base-content/75">
+            {sentence(@subject.description)}
+          </p>
+        </div>
+        <dl class="grid grid-cols-3 gap-x-6 gap-y-1 text-sm">
+          <div>
+            <dt class="text-xs text-base-content/50">Images</dt>
+            <dd class="font-mono font-semibold">{@images}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-base-content/50">Subject</dt>
+            <dd class="font-mono">{@subject.id}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-base-content/50">Seed</dt>
+            <dd class="font-mono">{@subject.seed}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+    """
+  end
 
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} wide>
-      <div class="flex flex-wrap items-end justify-between gap-4">
+      <.identity_header :if={@focused} run={@run} subject={@focused} />
+
+      <div :if={!@focused} class="flex flex-wrap items-end justify-between gap-4">
         <div class="min-w-0">
           <.link
             navigate={~p"/biometrics"}
@@ -367,7 +483,7 @@ defmodule PhantomWeb.BiometricsRunLive do
         <.progress_bar value={run_fraction(@progress)} />
       </div>
 
-      <.quality_report :if={@run.report} report={@run.report} />
+      <.quality_report :if={@run.report && !@focus} report={@run.report} />
 
       <div id="subjects" phx-update="stream" class="space-y-4">
         <div
@@ -381,12 +497,19 @@ defmodule PhantomWeb.BiometricsRunLive do
           id={dom_id}
           class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
         >
-          <header class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <header :if={!@focus} class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 class="font-mono text-sm font-semibold">{subject.id}</h2>
             <span class="font-mono text-xs text-base-content/50">seed {subject.seed}</span>
             <p class="w-full text-sm text-base-content/70 lg:w-auto lg:flex-1">
               {subject.description}
             </p>
+            <.link
+              navigate={~p"/biometrics/#{@run.name}/#{subject.id}"}
+              id={"open-#{subject.id}"}
+              class="inline-flex items-center gap-1 text-xs font-medium text-base-content/60 transition hover:text-primary"
+            >
+              Open identity <.icon name="hero-arrow-right-mini" class="size-3.5" />
+            </.link>
           </header>
           <section
             :for={{key, title, shots} <- sections(@run.shots)}
@@ -403,6 +526,7 @@ defmodule PhantomWeb.BiometricsRunLive do
                 subject={subject}
                 shot={shot}
                 active?={subject.id == active_subject_id(@progress)}
+                focused?={!!@focus}
                 rendering?={
                   subject.id == active_subject_id(@progress) and
                     shot == next_shot(@run.shots, subject)
@@ -422,7 +546,7 @@ defmodule PhantomWeb.BiometricsRunLive do
         aria-modal="true"
         aria-label={"#{shot_label(@selected.record.shot)} of #{@selected.subject.id}"}
       >
-        <.link patch={~p"/biometrics/#{@run.name}"} class="absolute inset-0" aria-label="Close"></.link>
+        <.link patch={page_path(@run, @focus)} class="absolute inset-0" aria-label="Close"></.link>
         <div class="relative grid max-h-full w-full max-w-6xl overflow-hidden rounded-2xl bg-base-100 shadow-2xl lg:grid-cols-[minmax(0,1fr)_360px]">
           <div class="flex min-h-0 items-center justify-center bg-neutral-950">
             <img
@@ -445,7 +569,7 @@ defmodule PhantomWeb.BiometricsRunLive do
                 </h2>
               </div>
               <.link
-                patch={~p"/biometrics/#{@run.name}"}
+                patch={page_path(@run, @focus)}
                 id="close-detail"
                 class="rounded-lg p-1.5 text-base-content/60 transition hover:bg-base-200 hover:text-base-content"
                 aria-label="Close"
@@ -543,7 +667,7 @@ defmodule PhantomWeb.BiometricsRunLive do
               <div class="flex gap-1">
                 <.link
                   :if={@selected.prev}
-                  patch={shot_path(@run.name, @selected.subject.id, @selected.prev)}
+                  patch={shot_path(@run.name, @selected.subject.id, @selected.prev, !!@focus)}
                   id="prev-shot"
                   class="rounded-lg border border-base-300 px-3 py-1.5 text-xs transition hover:bg-base-200"
                 >
@@ -551,7 +675,7 @@ defmodule PhantomWeb.BiometricsRunLive do
                 </.link>
                 <.link
                   :if={@selected.next}
-                  patch={shot_path(@run.name, @selected.subject.id, @selected.next)}
+                  patch={shot_path(@run.name, @selected.subject.id, @selected.next, !!@focus)}
                   id="next-shot"
                   class="rounded-lg border border-base-300 px-3 py-1.5 text-xs transition hover:bg-base-200"
                 >

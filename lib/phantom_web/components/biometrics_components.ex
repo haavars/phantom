@@ -162,6 +162,7 @@ defmodule PhantomWeb.BiometricsComponents do
   attr :shot, :string, required: true
   attr :rendering?, :boolean, default: false
   attr :active?, :boolean, default: false, doc: "whether this subject is still being rendered"
+  attr :focused?, :boolean, default: false, doc: "whether the page shows this subject only"
 
   def shot_tile(assigns) do
     spec = Shots.spec(assigns.shot) || %{size: {4, 5}, modality: :face, group: "face"}
@@ -184,7 +185,7 @@ defmodule PhantomWeb.BiometricsComponents do
       <%= cond do %>
         <% @record && @record.status in ["ok", "existing"] -> %>
           <.link
-            patch={~p"/biometrics/#{@run}?#{[subject: @subject.id, shot: @shot]}"}
+            patch={shot_path(@run, @subject.id, @shot, @focused?)}
             class={[
               "group relative block overflow-hidden rounded-xl ring-1 transition hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
               if(@check && @check["accepted"] == false, do: "ring-error/60", else: "ring-base-300"),
@@ -197,7 +198,7 @@ defmodule PhantomWeb.BiometricsComponents do
               alt={"#{shot_label(@shot)} of #{@subject.id}"}
               loading="lazy"
               class={[
-                "size-full transition duration-300 group-hover:scale-[1.03]",
+                "size-full text-transparent transition duration-300 group-hover:scale-[1.03]",
                 if(@ridge?, do: "object-contain", else: "object-cover")
               ]}
             />
@@ -250,6 +251,18 @@ defmodule PhantomWeb.BiometricsComponents do
     </figure>
     """
   end
+
+  @doc """
+  The detail view of one shot: on the run page, or on the subject's own page
+  (`/biometrics/:run/:subject`) when `focused?`.
+  """
+  def shot_path(run, subject_id, shot, focused? \\ false)
+
+  def shot_path(run, subject_id, shot, true),
+    do: ~p"/biometrics/#{run}/#{subject_id}?#{[shot: shot]}"
+
+  def shot_path(run, subject_id, shot, false),
+    do: ~p"/biometrics/#{run}?#{[subject: subject_id, shot: shot]}"
 
   # Face shots and full palms are tall, slaps and cards wide: size tiles so rows
   # read well at a glance.
