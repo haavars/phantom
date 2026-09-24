@@ -2,27 +2,20 @@ defmodule Phantom.Biometrics.Gallery do
   @moduledoc """
   The synthetic identities across all runs, for the landing page gallery.
 
-  Each identity is one finished subject: its portrait (if it has face shots),
-  its rolled prints and their pattern classes, and how many images of each
-  modality it has. Newest runs come first.
+  Each identity is one subject with at least one rendered image: its portrait
+  (if it has face shots), its rolled prints and their pattern classes, and how
+  many images of each modality it has. Newest runs come first.
   """
 
-  alias Phantom.Biometrics.{Runs, Shots}
+  alias Phantom.Biometrics.{Image, Runs, Shots}
 
-  @portraits ["mugshot_frontal.png", "icao_portrait.png"]
+  @portraits ["mugshot_frontal", "icao_portrait"]
 
-  @doc "Identities across all runs under `root`, newest first, at most `limit`."
-  def identities(limit \\ 48, root \\ Runs.root()) do
-    root
-    |> Runs.list_runs()
-    |> Stream.flat_map(fn summary ->
-      case Runs.get_run(summary.name, root) do
-        {:ok, run} -> Enum.map(run.subjects_list, &identity(run, &1))
-        {:error, :not_found} -> []
-      end
-    end)
-    |> Stream.reject(&(&1.images == 0))
-    |> Enum.take(limit)
+  @doc "Identities across all runs, newest first, at most `limit`."
+  def identities(limit \\ 48) do
+    limit
+    |> Runs.list_subjects_with_images()
+    |> Enum.map(&identity/1)
   end
 
   @doc "Totals for a list of identities: `:identities`, `:images`, `:faces`, `:prints`, `:runs`."
@@ -36,38 +29,38 @@ defmodule Phantom.Biometrics.Gallery do
     }
   end
 
-  defp identity(run, subject) do
-    shots = Enum.filter(subject.shots, &(&1.status in ["ok", "existing"] and is_binary(&1.file)))
-    specs = Enum.map(shots, &{&1, Shots.spec(&1.shot)})
-    files = MapSet.new(shots, & &1.file)
+  defp identity(subject) do
+    images = Enum.filter(subject.images, &Image.rendered?/1)
+    specs = Enum.map(images, &{&1, Shots.spec(&1.shot)})
+    by_shot = Map.new(images, &{&1.shot, &1})
 
-    rolled =
-      for {shot, %{group: "rolled", capture: 0, numeric_code: fgp}} <- specs,
-          do: %{fgp: fgp, file: shot.file, pattern: shot.meta && shot.meta["pattern"]}
+    prints =
+      for {image, %{group: "rolled", capture: 0, numeric_code: fgp}} <- specs do
+        %{fgp: fgp, image: image, pattern: image.meta && image.meta["pattern"]}
+      end
 
-    rolled = Enum.sort_by(rolled, & &1.fgp)
-    attributes = subject.attributes
+    attributes = subject.attributes || %{}
 
     %{
-      id: "#{run.name}--#{subject.id}",
-      run: run.name,
-      subject: subject.id,
+      id: "#{subject.run.name}--#{subject.name}",
+      run: subject.run.name,
+      subject: subject.name,
       code: code(subject.seed),
       seed: subject.seed,
       description: subject.description,
       sex: attributes["sex"],
       age: attributes["age"],
-      portrait: Enum.find(@portraits, &MapSet.member?(files, &1)),
-      prints: rolled,
+      portrait: Enum.find_value(@portraits, &by_shot[&1]),
+      prints: Enum.sort_by(prints, & &1.fgp),
       counts: counts(specs),
-      images: length(shots),
-      renderer: run.renderer
+      images: length(images),
+      renderer: subject.run.renderer
     }
   end
 
   defp counts(specs) do
     specs
-    |> Enum.frequencies_by(fn {_shot, spec} -> spec && spec.group end)
+    |> Enum.frequencies_by(fn {_image, spec} -> spec && spec.group end)
     |> Map.delete(nil)
   end
 

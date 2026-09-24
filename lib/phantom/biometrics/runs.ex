@@ -1,193 +1,206 @@
 defmodule Phantom.Biometrics.Runs do
   @moduledoc """
-  Reads `Phantom.Biometrics.Harness` runs back from the output folder.
+  Runs, their subjects and images, in the database (`Phantom.Biometrics.Run`,
+  `Phantom.Biometrics.Subject`, `Phantom.Biometrics.Image`). Image files live
+  in `Phantom.Biometrics.Storage`; images only keep their storage key.
 
-  The folder is the source of truth, so runs started from `mix biometrics.generate`
-  and from the web UI show up alike. Subjects and shots come back as maps with
-  the same keys as the harness's in-memory records (`:id`, `:seed`,
-  `:description`, `:shots`; each shot `:shot`, `:pos`, `:file`, `:status`, ...),
-  so callers can treat live progress and finished runs the same way.
+  `Phantom.Biometrics.Harness` writes through this module as it renders, so
+  pages that read a run see it fill in, and a cancelled run can be resumed
+  from what is already stored.
   """
 
-  alias Phantom.Biometrics.Report
+  import Ecto.Query
+
+  alias Phantom.Repo
+  alias Phantom.Biometrics.{Image, Run, Subject}
 
   @name_format ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/
 
-  @doc "The output root, `config :phantom, :biometrics_output_dir`."
-  def root, do: Application.get_env(:phantom, :biometrics_output_dir, "data/synthetic/biometrics")
-
-  @doc "True for names that are safe as a single path segment (run, subject or file names)."
+  @doc "True for names that are safe in URLs and storage keys (run and subject names)."
   def valid_name?(name) when is_binary(name), do: name =~ @name_format
   def valid_name?(_name), do: false
 
-  def exists?(name, root \\ root()),
-    do: valid_name?(name) and File.exists?(Path.join([root, name, "run.json"]))
+  ## Reading
 
-  @doc "Summaries of all runs, most recently updated first."
-  def list_runs(root \\ root()) do
-    case File.ls(root) do
-      {:ok, names} ->
-        names
-        |> Enum.flat_map(fn name ->
-          case summary(name, root) do
-            {:ok, summary} -> [summary]
-            {:error, :not_found} -> []
-          end
-        end)
-        |> Enum.sort_by(& &1.updated_at, :desc)
+  @doc """
+  All runs, newest first. Each has `:completed_subjects` (subjects with every
+  shot attempted) and `:cover` (the first subject's frontal mugshot or index
+  finger, or nil) set.
+  """
+  def list_runs do
+    Repo.all(from r in Run, order_by: [desc: r.inserted_at, desc: r.id]) |> with_summary()
+  end
 
-      {:error, _reason} ->
-        []
+  @doc "One run by name, with the same fields set as in `list_runs/0`."
+  def summary(name) do
+    case Repo.get_by(Run, name: name) do
+      nil -> {:error, :not_found}
+      run -> {:ok, run |> List.wrap() |> with_summary() |> hd()}
+    end
+  end
+
+  defp with_summary(runs) do
+    run_ids = Enum.map(runs, & &1.id)
+
+    completed =
+      from(s in Subject,
+        where: s.run_id in ^run_ids and not is_nil(s.completed_at),
+        group_by: s.run_id,
+        select: {s.run_id, count(s.id)}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    covers = covers(run_ids)
+
+    Enum.map(runs, fn run ->
+      %{run | completed_subjects: Map.get(completed, run.id, 0), cover: covers[run.id]}
+    end)
+  end
+
+  # Per run: the first subject's frontal mugshot, else its right index finger,
+  # else its right thumb.
+  defp covers(run_ids) do
+    shots = ["mugshot_frontal", "rolled_02", "rolled_01"]
+
+    from(i in Image,
+      join: s in assoc(i, :subject),
+      where: s.run_id in ^run_ids and i.shot in ^shots and i.status == "ok",
+      order_by: [asc: s.position],
+      select: {s.run_id, s.position, i}
+    )
+    |> Repo.all()
+    |> Enum.group_by(fn {run_id, _position, _image} -> run_id end)
+    |> Map.new(fn {run_id, [{_run_id, first_position, _image} | _] = rows} ->
+      images = for {_run_id, ^first_position, image} <- rows, do: image
+      {run_id, Enum.min_by(images, fn image -> Enum.find_index(shots, &(&1 == image.shot)) end)}
+    end)
+  end
+
+  @doc "True when a run with this name exists."
+  def exists?(name), do: Repo.exists?(from r in Run, where: r.name == ^name)
+
+  @doc "A run by name with its subjects and their images, in order."
+  def get_run(name) do
+    case Repo.get_by(Run, name: name) do
+      nil -> {:error, :not_found}
+      run -> {:ok, run |> Repo.preload(subjects: :images) |> put_completed()}
+    end
+  end
+
+  defp put_completed(%Run{subjects: subjects} = run),
+    do: %{run | completed_subjects: Enum.count(subjects, & &1.completed_at)}
+
+  @doc "One subject of a run, with its images."
+  def get_subject(run_name, subject_name) do
+    query =
+      from s in Subject,
+        join: r in assoc(s, :run),
+        where: r.name == ^run_name and s.name == ^subject_name,
+        preload: [:images]
+
+    case Repo.one(query) do
+      nil -> {:error, :not_found}
+      subject -> {:ok, subject}
+    end
+  end
+
+  @doc "An image by id."
+  def get_image(id) do
+    case Repo.get(Image, id) do
+      nil -> {:error, :not_found}
+      image -> {:ok, image}
     end
   end
 
   @doc """
-  Summary of one run: `:id`/`:name`, `:seed`, `:shots`, `:steps`, `:renderer`, `:prompt_version`,
-  `:subjects` (planned), `:completed` (subjects written), `:cover` (the first
-  subject's anchor file, as `{subject_id, file}`, or `nil`), `:report` (the
-  friction-ridge quality report, see `Phantom.Biometrics.Report`, or `nil`) and
-  `:updated_at` (unix seconds).
+  Subjects across all runs that have at least one rendered image, newest run
+  first, at most `limit`. Each has its images and run preloaded.
   """
-  def summary(name, root \\ root()) do
-    with true <- valid_name?(name),
-         dir = Path.join(root, name),
-         {:ok, json} <- File.read(Path.join(dir, "run.json")),
-         {:ok, config} <- Jason.decode(json) do
-      subject_ids = subject_ids(dir)
+  def list_subjects_with_images(limit) do
+    rendered = from i in Image, where: i.status == "ok", select: i.subject_id
 
-      {:ok,
-       %{
-         id: name,
-         name: name,
-         seed: config["seed"],
-         shots: config["shots"] || [],
-         steps: config["steps"],
-         captures: config["captures"] || 1,
-         # Runs from before the diffusion renderer were procedural.
-         renderer: config["renderer"] || "procedural",
-         prompt_version: config["prompt_version"],
-         subjects: config["subjects"] || 0,
-         completed: length(subject_ids),
-         cover: cover(dir, subject_ids),
-         report: Report.read(dir),
-         updated_at: updated_at(dir)
-       }}
-    else
-      _ -> {:error, :not_found}
-    end
-  end
-
-  @doc "A run summary plus its finished subjects (those with a `subject.json`), in order."
-  def get_run(name, root \\ root()) do
-    with {:ok, summary} <- summary(name, root) do
-      dir = Path.join(root, name)
-
-      subjects =
-        dir
-        |> subject_ids()
-        |> Enum.flat_map(fn id ->
-          case read_subject(Path.join(dir, id)) do
-            {:ok, subject} -> [subject]
-            :error -> []
-          end
-        end)
-
-      {:ok, Map.put(summary, :subjects_list, subjects)}
-    end
-  end
-
-  @doc "One finished subject of a run."
-  def get_subject(run, subject_id, root \\ root()) do
-    if valid_name?(run) and valid_name?(subject_id) do
-      case read_subject(Path.join([root, run, subject_id])) do
-        {:ok, subject} -> {:ok, subject}
-        :error -> {:error, :not_found}
-      end
-    else
-      {:error, :not_found}
-    end
-  end
-
-  @doc """
-  Absolute path of an image or JSON file inside a run, if every segment is a
-  valid name and the file exists. Used to serve files over HTTP.
-  """
-  def file_path(run, subject_id, file, root \\ root()) do
-    path = Path.join([root, run, subject_id, file])
-
-    if Enum.all?([run, subject_id, file], &valid_name?/1) and
-         Path.extname(file) in [".png", ".json"] and File.regular?(path) do
-      {:ok, path}
-    else
-      {:error, :not_found}
-    end
-  end
-
-  defp subject_ids(dir) do
-    case File.ls(dir) do
-      {:ok, entries} ->
-        entries
-        |> Enum.filter(&(valid_name?(&1) and File.exists?(Path.join([dir, &1, "subject.json"]))))
-        |> Enum.sort()
-
-      {:error, _reason} ->
-        []
-    end
-  end
-
-  defp read_subject(dir) do
-    with {:ok, json} <- File.read(Path.join(dir, "subject.json")),
-         {:ok, data} <- Jason.decode(json) do
-      {:ok,
-       %{
-         id: data["id"],
-         seed: data["seed"],
-         description: data["description"],
-         attributes: data["attributes"] || %{},
-         shots: Enum.map(data["shots"] || [], &shot_from_json/1)
-       }}
-    else
-      _ -> :error
-    end
-  end
-
-  defp shot_from_json(shot) do
-    %{
-      shot: shot["shot"],
-      pos: shot["pos"],
-      file: shot["file"],
-      width: shot["width"],
-      height: shot["height"],
-      seed: shot["seed"],
-      reference: shot["reference"],
-      prompt: shot["prompt"],
-      capture: shot["capture"] || 0,
-      meta: shot["meta"],
-      ground_truth: shot["ground_truth"],
-      status: shot["status"],
-      duration_ms: shot["duration_ms"],
-      error: shot["error"]
-    }
-  end
-
-  defp cover(_dir, []), do: nil
-
-  defp cover(dir, [first | _]) do
-    Enum.find_value(
-      ["mugshot_frontal.png", "rolled_02.png", "rolled_01.png", "slap_13.png"],
-      fn file ->
-        if File.exists?(Path.join([dir, first, file])), do: {first, file}
-      end
+    Repo.all(
+      from s in Subject,
+        join: r in assoc(s, :run),
+        where: s.id in subquery(rendered),
+        order_by: [desc: r.inserted_at, desc: r.id, asc: s.position],
+        limit: ^limit,
+        preload: [:images, run: r]
     )
   end
 
-  # index.html is rewritten after every subject, so it tracks the last activity.
-  defp updated_at(dir) do
-    ["index.html", "run.json"]
-    |> Enum.map(&File.stat(Path.join(dir, &1), time: :posix))
-    |> Enum.find_value(0, fn
-      {:ok, %File.Stat{mtime: mtime}} -> mtime
-      _ -> nil
-    end)
+  ## Writing
+
+  @doc """
+  Starts a run, or restarts the existing one with the same name (to resume
+  it). Returns `{:ok, run}` or `{:error, changeset}`.
+  """
+  def start_run(attrs) do
+    (Repo.get_by(Run, name: attrs.name) || %Run{})
+    |> Run.start_changeset(attrs)
+    |> Repo.insert_or_update()
+  end
+
+  @doc "Marks a run finished, cancelled or failed."
+  def finish_run(%Run{} = run, status, error \\ nil) do
+    run |> Run.finish_changeset(status, error) |> Repo.update()
+  end
+
+  @doc "`finish_run/3` for a run given by name."
+  def finish_run_by_name(name, status, error \\ nil) do
+    case Repo.get_by(Run, name: name) do
+      nil -> {:error, :not_found}
+      run -> finish_run(run, status, error)
+    end
+  end
+
+  @doc """
+  Marks runs still `running` as cancelled. Called at startup: nothing can be
+  running then, so these were interrupted by a restart and can be resumed.
+  """
+  def interrupt_running do
+    {count, _} =
+      Repo.update_all(from(r in Run, where: r.status == "running"),
+        set: [status: "cancelled", finished_at: DateTime.utc_now()]
+      )
+
+    count
+  end
+
+  def put_report(%Run{} = run, report) do
+    run |> Ecto.Changeset.change(report: report) |> Repo.update()
+  end
+
+  @doc """
+  The subject at `position` of `run`, created or updated with `attrs`
+  (`:seed`, `:description`, `:attributes`). Its images are preloaded.
+  """
+  def ensure_subject(%Run{} = run, position, attrs) do
+    subject =
+      Repo.get_by(Subject, run_id: run.id, position: position) ||
+        %Subject{run_id: run.id, position: position, name: Subject.name(position)}
+
+    subject
+    |> Ecto.Changeset.change(
+      seed: attrs.seed,
+      description: attrs.description,
+      attributes: attrs.attributes,
+      completed_at: nil
+    )
+    |> Repo.insert_or_update!()
+    |> Repo.preload(:images, force: true)
+  end
+
+  def complete_subject(%Subject{} = subject) do
+    subject |> Ecto.Changeset.change(completed_at: DateTime.utc_now()) |> Repo.update!()
+  end
+
+  @doc "Records the result of a shot, replacing an earlier attempt at it."
+  def put_image(%Subject{} = subject, attrs) do
+    (Repo.get_by(Image, subject_id: subject.id, shot: attrs.shot) ||
+       %Image{subject_id: subject.id})
+    |> Image.changeset(attrs)
+    |> Repo.insert_or_update()
   end
 end

@@ -23,7 +23,8 @@ defmodule PhantomWeb.Router do
     live "/biometrics/:run", BiometricsRunLive, :show
     live "/biometrics/:run/:subject", BiometricsRunLive, :subject
 
-    get "/biometrics-files/:run/:subject/:file", BiometricsFileController, :show
+    get "/images/:id", ImageController, :show
+    get "/images/:id/ground-truth", ImageController, :ground_truth
   end
 
   # Other scopes may use custom stacks.

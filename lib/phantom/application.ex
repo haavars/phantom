@@ -25,7 +25,22 @@ defmodule Phantom.Application do
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Phantom.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      interrupt_running_runs()
+      {:ok, pid}
+    end
+  end
+
+  # Nothing is running yet, so runs recorded as running were interrupted by a
+  # restart: mark them cancelled so they can be resumed. Once, at startup
+  # (not when the runner restarts).
+  defp interrupt_running_runs do
+    Phantom.Biometrics.Runs.interrupt_running()
+  rescue
+    error in DBConnection.ConnectionError ->
+      require Logger
+      Logger.warning("Couldn't mark interrupted biometrics runs: #{Exception.message(error)}")
   end
 
   # Tell Phoenix to update the endpoint configuration

@@ -20,13 +20,16 @@ defmodule Mix.Tasks.Biometrics.Generate do
     * `--renderer` - friction-ridge renderer: `diffusion` (realistic, GPU; default) or
       `procedural` (fast CPU draft)
     * `--steps` - denoising steps for face shots (default 40)
-    * `--out` - output root (default `config :phantom, :biometrics_output_dir`, data/synthetic/biometrics)
-    * `--run` - run directory name (default `<timestamp>-seed<seed>`)
+    * `--run` - run name (default `<timestamp>-seed<seed>`)
     * `--force` - regenerate images that already exist
+
+  The run is recorded in the database like runs started from the app, so it
+  shows up on the Runs page. Images are written to
+  `config :phantom, :biometrics_output_dir` (data/synthetic/biometrics).
 
   Face shots need the Qwen-Image-2.1 service and friction-ridge shots the
   python_biometrics service; both start with `mix phx.server`. This task only
-  loads config, so it doesn't start second copies of them.
+  starts the database connection, so it doesn't start second copies of them.
   """
 
   use Mix.Task
@@ -41,7 +44,6 @@ defmodule Mix.Tasks.Biometrics.Generate do
     captures: :integer,
     renderer: :string,
     steps: :integer,
-    out: :string,
     run: :string,
     force: :boolean
   ]
@@ -55,7 +57,8 @@ defmodule Mix.Tasks.Biometrics.Generate do
     end
 
     Mix.Task.run("app.config")
-    {:ok, _apps} = Application.ensure_all_started(:req)
+    {:ok, _apps} = Application.ensure_all_started([:req, :ecto_sql, :postgrex])
+    {:ok, _repo} = Phantom.Repo.start_link()
 
     opts =
       opts
@@ -78,9 +81,9 @@ defmodule Mix.Tasks.Biometrics.Generate do
     end
 
     case Harness.run(opts) do
-      {:ok, %{index: index, report: report}} ->
+      {:ok, %{run: run, report: report}} ->
         print_report(report)
-        Mix.shell().info("\nContact sheet: #{Path.expand(index)}")
+        Mix.shell().info("\nRun #{run.name}: open /biometrics/#{run.name} in the app")
 
       {:error, message} ->
         Mix.raise(message)
@@ -132,15 +135,15 @@ defmodule Mix.Tasks.Biometrics.Generate do
 
   defp report({:subject_started, _subject}), do: :ok
 
-  defp report({:shot, subject_id, %{status: "ok"} = record}) do
-    Mix.shell().info("#{subject_id} #{record.shot}: #{record.duration_ms} ms")
+  defp report({:shot, subject_name, %{status: "ok"} = image}) do
+    Mix.shell().info("#{subject_name} #{image.shot}: #{image.duration_ms} ms")
   end
 
-  defp report({:shot, subject_id, record}) do
-    Mix.shell().info("#{subject_id} #{record.shot}: #{record.status} #{record.error}")
+  defp report({:shot, subject_name, image}) do
+    Mix.shell().info("#{subject_name} #{image.shot}: #{image.status} #{image.error}")
   end
 
   defp report({:subject_done, subject}) do
-    Mix.shell().info("#{subject.id} done: #{subject.description}")
+    Mix.shell().info("#{subject.name} done: #{subject.description}")
   end
 end

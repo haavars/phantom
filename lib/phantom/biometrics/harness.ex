@@ -9,30 +9,39 @@ defmodule Phantom.Biometrics.Harness do
   subject seed. Face shots start with the anchor (frontal mugshot) rendered
   from text, and every other face shot is conditioned on it. Friction-ridge
   shots are all derived from the subject seed, so every image of one subject
-  shows the same fingers and palms. Output goes to a plain folder:
+  shows the same fingers and palms.
 
-      <out>/<run>/run.json
-      <out>/<run>/index.html                 contact sheet, one row per subject
-      <out>/<run>/subject_001/subject.json   attributes, prompts, seeds, timings
-      <out>/<run>/subject_001/<shot>.png
-      <out>/<run>/subject_001/<shot>.json    friction-ridge ground truth (minutiae, patterns, verification)
-      <out>/<run>/report.json                friction-ridge quality report, see `Phantom.Biometrics.Report`
+  The run, its subjects and every image are recorded in the database as they
+  are rendered (see `Phantom.Biometrics.Runs`), and the files go to
+  `Phantom.Biometrics.Storage` under `<run>/<subject>/<shot>.png`.
 
-  Everything is derived from the run seed, so re-running with the same `:run`
-  and `:seed` skips images that already exist and regenerates missing ones
-  identically. Pass `force: true` to regenerate everything.
+  Everything is derived from the run seed, so running again with the same
+  `:run` and `:seed` keeps the images already rendered and renders the missing
+  ones identically. Pass `force: true` to render everything again.
 
-  Run it with `mix biometrics.generate`, or from IEx with `run/1`.
+  Run it with `mix biometrics.generate`, from IEx with `run/1`, or in the
+  background with `Phantom.Biometrics.Runner`.
   """
 
-  alias Phantom.Biometrics.{FaceAttributes, FacePrompts, FrictionRidge, Report, Runs, Shots}
+  alias Phantom.Biometrics.{
+    FaceAttributes,
+    FacePrompts,
+    FrictionRidge,
+    Image,
+    Report,
+    Run,
+    Runs,
+    Shots,
+    Storage
+  }
+
   alias Phantom.ImageGeneration
 
   @renderers ~w(diffusion procedural)
   @default_renderer "diffusion"
 
   @doc """
-  Runs the harness. Options:
+  Runs the harness: `start/1`, then `execute/2`. Options:
 
     * `:subjects` - number of subjects, defaults to 3
     * `:seed` - run seed, defaults to a random one
@@ -42,59 +51,65 @@ defmodule Phantom.Biometrics.Harness do
     * `:renderer` - friction-ridge renderer, `"diffusion"` (realistic, GPU; the
       default) or `"procedural"` (fast CPU draft), see `renderers/0`
     * `:steps` - denoising steps, defaults to 40
-    * `:out` - output root, defaults to `Phantom.Biometrics.Runs.root/0`
-    * `:run` - run directory name, defaults to `<timestamp>-seed<seed>`
-    * `:force` - regenerate images that already exist, defaults to false
-    * `:on_progress` - 1-arity function called with `{:subject_started, %{id:, seed:, description:}}`,
-      `{:shot, subject_id, shot_record}` and `{:subject_done, subject_record}`
+    * `:run` - run name, defaults to `<timestamp>-seed<seed>`
+    * `:force` - render images again even if they exist, defaults to false
+    * `:on_progress` - 1-arity function called with `{:subject_started, subject}`,
+      `{:shot, subject_name, image}` and `{:subject_done, subject}`
 
-  Returns `{:ok, %{dir: run_dir, index: index_path, subjects: [subject_record], report: report}}`
-  or `{:error, message}` for invalid options. `report` is the friction-ridge
+  Returns `{:ok, %{run: run, subjects: [subject], report: report}}` or
+  `{:error, message}` for invalid options. `report` is the friction-ridge
   quality report (`Phantom.Biometrics.Report`), nil for runs without verified images.
   """
   def run(opts \\ []) do
-    with {:ok, shots} <-
-           resolve_shots(Keyword.get(opts, :shots, ["faces"]), Keyword.get(opts, :captures, 1)) do
-      seed = Keyword.get_lazy(opts, :seed, &random_seed/0)
-      run_name = Keyword.get_lazy(opts, :run, fn -> default_run_name(seed) end)
-      run_dir = Path.join(Keyword.get_lazy(opts, :out, &Runs.root/0), run_name)
-      File.mkdir_p!(run_dir)
+    with {:ok, run} <- start(opts), do: execute(run, opts)
+  end
 
-      config = %{
-        run: run_name,
+  @doc """
+  Validates the options and records the run as running, creating it or
+  restarting the existing run with the same name. Returns `{:ok, run}` or
+  `{:error, message}`.
+  """
+  def start(opts) do
+    captures = Keyword.get(opts, :captures, 1)
+
+    with {:ok, shots} <- resolve_shots(Keyword.get(opts, :shots, ["faces"]), captures) do
+      seed = Keyword.get_lazy(opts, :seed, &random_seed/0)
+
+      attrs = %{
+        name: Keyword.get_lazy(opts, :run, fn -> default_run_name(seed) end),
         seed: seed,
         shots: shots,
-        captures: Keyword.get(opts, :captures, 1),
+        captures: captures,
         renderer: Keyword.get(opts, :renderer, @default_renderer),
         steps: Keyword.get(opts, :steps, 40),
         prompt_version: FacePrompts.version(),
-        subjects: Keyword.get(opts, :subjects, 3)
+        subject_count: Keyword.get(opts, :subjects, 3)
       }
 
-      write_json(Path.join(run_dir, "run.json"), config)
-
-      on_progress = Keyword.get(opts, :on_progress, fn _event -> :ok end)
-      force? = Keyword.get(opts, :force, false)
-
-      subjects =
-        Enum.reduce(1..config.subjects//1, [], fn index, done ->
-          subject = run_subject(index, config, run_dir, force?, on_progress)
-          on_progress.({:subject_done, subject})
-          done = done ++ [subject]
-          write_contact_sheet(run_dir, config, done)
-          done
-        end)
-
-      report = Report.write(run_dir, subjects)
-
-      {:ok,
-       %{
-         dir: run_dir,
-         index: Path.join(run_dir, "index.html"),
-         subjects: subjects,
-         report: report
-       }}
+      case Runs.start_run(attrs) do
+        {:ok, run} -> {:ok, run}
+        {:error, changeset} -> {:error, "Couldn't start the run: #{inspect(changeset.errors)}"}
+      end
     end
+  end
+
+  @doc "Renders every subject of a started run, then stores its report and marks it finished."
+  def execute(%Run{} = run, opts \\ []) do
+    on_progress = Keyword.get(opts, :on_progress, fn _event -> :ok end)
+    force? = Keyword.get(opts, :force, false)
+
+    subjects =
+      for position <- 1..run.subject_count//1 do
+        subject = run_subject(run, position, force?, on_progress)
+        on_progress.({:subject_done, subject})
+        subject
+      end
+
+    report = Report.build(subjects)
+    {:ok, run} = Runs.put_report(run, report)
+    {:ok, run} = Runs.finish_run(run, "finished")
+
+    {:ok, %{run: run, subjects: subjects, report: report}}
   end
 
   @doc "Friction-ridge renderers, the default first."
@@ -112,181 +127,187 @@ defmodule Phantom.Biometrics.Harness do
     end
   end
 
-  defp run_subject(index, config, run_dir, force?, on_progress) do
-    id = "subject_" <> String.pad_leading(Integer.to_string(index), 3, "0")
-    subject_seed = derive_seed(config.seed, index)
+  defp run_subject(run, position, force?, on_progress) do
+    subject_seed = derive_seed(run.seed, position)
     attrs = FaceAttributes.sample(subject_seed)
-    dir = Path.join(run_dir, id)
-    File.mkdir_p!(dir)
 
-    on_progress.(
-      {:subject_started,
-       %{id: id, seed: subject_seed, description: FaceAttributes.describe(attrs)}}
-    )
+    subject =
+      Runs.ensure_subject(run, position, %{
+        seed: subject_seed,
+        description: FaceAttributes.describe(attrs),
+        # Stored as JSON: string keys, like it reads back.
+        attributes: attrs |> Jason.encode!() |> Jason.decode!()
+      })
 
-    {records, _anchor} =
-      Enum.map_reduce(config.shots, nil, fn shot, anchor ->
-        record = run_shot(shot, attrs, subject_seed, anchor, dir, config, force?)
-        on_progress.({:shot, id, record})
+    stored = Map.new(subject.images, &{&1.shot, &1})
+    on_progress.({:subject_started, %{subject | images: []}})
+
+    {images, _anchor} =
+      Enum.map_reduce(run.shots, nil, fn shot, anchor ->
+        image = run_shot(shot, run, subject, attrs, anchor, stored[shot], force?)
+        on_progress.({:shot, subject.name, image})
 
         anchor =
-          if shot == FacePrompts.anchor_shot() and record.status in ["ok", "existing"],
-            do: File.read!(Path.join(dir, record.file)),
-            else: anchor
+          if shot == FacePrompts.anchor_shot() and Image.rendered?(image), do: image, else: anchor
 
-        {record, anchor}
+        {image, anchor}
       end)
 
-    subject = %{
-      id: id,
-      seed: subject_seed,
-      description: FaceAttributes.describe(attrs),
-      attributes: attrs,
-      shots: records
-    }
-
-    write_json(Path.join(dir, "subject.json"), subject)
-    subject
+    %{Runs.complete_subject(subject) | images: images}
   end
 
-  defp run_shot(shot, attrs, subject_seed, anchor, dir, config, force?) do
-    case Shots.spec(shot) do
-      %{modality: :face} ->
-        run_face_shot(shot, attrs, subject_seed, anchor, dir, config.steps, force?)
+  defp run_shot(shot, run, subject, attrs, anchor, stored, force?) do
+    if not force? and Image.rendered?(stored) and Storage.exists?(stored.storage_key) do
+      stored
+    else
+      spec = Shots.spec(shot)
 
-      %{modality: :ridge} = spec ->
-        run_ridge_shot(spec, subject_seed, dir, config.renderer, force?)
+      attrs =
+        case spec do
+          %{modality: :face} -> render_face(spec, run, subject, attrs, anchor)
+          %{modality: :ridge} -> render_ridge(spec, run, subject)
+        end
+
+      {:ok, image} = Runs.put_image(subject, attrs)
+      image
     end
   end
 
-  defp run_face_shot(shot, attrs, subject_seed, anchor, dir, steps, force?) do
-    spec = FacePrompts.spec(shot)
+  defp render_face(spec, run, subject, attrs, anchor) do
     {width, height} = spec.size
-    file = shot <> ".png"
-    path = Path.join(dir, file)
 
-    record = %{
-      shot: shot,
-      pos: spec.pos,
-      file: file,
+    base = %{
+      shot: spec.id,
+      modality: "face",
+      pos: spec.code,
       width: width,
       height: height,
-      seed: derive_seed(subject_seed, shot),
-      reference: if(spec.anchor?, do: nil, else: FacePrompts.anchor_shot() <> ".png"),
-      prompt: FacePrompts.prompt(shot, attrs),
-      # Same keys as friction-ridge records, so every shot record has one shape.
+      seed: derive_seed(subject.seed, spec.id),
+      prompt: FacePrompts.prompt(spec.id, attrs),
+      reference_id: anchor && anchor.id,
       capture: 0,
       meta: nil,
       ground_truth: nil,
-      duration_ms: nil,
       error: nil
     }
 
-    cond do
-      File.exists?(path) and not force? ->
-        Map.put(record, :status, "existing")
+    references =
+      cond do
+        spec.anchor? -> {:ok, []}
+        is_nil(anchor) -> :no_anchor
+        true -> anchor_reference(anchor)
+      end
 
-      not spec.anchor? and is_nil(anchor) ->
-        Map.merge(record, %{status: "skipped", error: "anchor shot failed"})
+    case references do
+      :no_anchor ->
+        failed(base, "skipped", "anchor shot failed", nil)
 
-      true ->
-        images =
-          if spec.anchor?,
-            do: [],
-            else: [%{data: anchor, filename: record.reference, content_type: "image/png"}]
+      {:error, message} ->
+        failed(base, "error", message, nil)
 
+      {:ok, images} ->
         started = System.monotonic_time(:millisecond)
 
         result =
-          ImageGeneration.render(record.prompt,
+          ImageGeneration.render(base.prompt,
             width: width,
             height: height,
-            steps: steps,
-            seed: record.seed,
+            steps: run.steps,
+            seed: base.seed,
             images: images
           )
 
         duration_ms = System.monotonic_time(:millisecond) - started
 
         case result do
-          {:ok, %{image: png}} ->
-            File.write!(path, png)
-            Map.merge(record, %{status: "ok", duration_ms: duration_ms})
-
-          {:error, message} ->
-            Map.merge(record, %{status: "error", duration_ms: duration_ms, error: message})
+          {:ok, %{image: png}} -> stored(base, run, subject, png, duration_ms)
+          {:error, message} -> failed(base, "error", message, duration_ms)
         end
+    end
+  end
+
+  defp anchor_reference(anchor) do
+    case Storage.read(anchor.storage_key) do
+      {:ok, data} ->
+        {:ok, [%{data: data, filename: anchor.shot <> ".png", content_type: "image/png"}]}
+
+      {:error, reason} ->
+        {:error, "couldn't read the anchor image: #{inspect(reason)}"}
     end
   end
 
   # Fingers, slaps, palms and the tenprint card all come from the subject seed,
   # so every image of one subject shows the same fingers and palms.
-  defp run_ridge_shot(spec, subject_seed, dir, renderer, force?) do
+  defp render_ridge(spec, run, subject) do
     {width, height} = spec.size
-    file = spec.id <> ".png"
-    path = Path.join(dir, file)
-    ground_truth = spec.id <> ".json"
 
-    record = %{
+    base = %{
       shot: spec.id,
+      modality: "ridge",
       pos: spec.code,
-      file: file,
       width: width,
       height: height,
-      seed: subject_seed,
+      seed: subject.seed,
       capture: spec.capture,
-      reference: nil,
       prompt: nil,
+      reference_id: nil,
       meta: nil,
       ground_truth: nil,
-      duration_ms: nil,
       error: nil
     }
 
-    if File.exists?(path) and not force? do
-      Map.merge(
-        record,
-        %{status: "existing"} |> Map.merge(existing_ground_truth(dir, ground_truth))
+    started = System.monotonic_time(:millisecond)
+
+    result =
+      FrictionRidge.render(spec.kind, spec.numeric_code, subject.seed, spec.capture,
+        label: subject.name,
+        renderer: run.renderer
       )
-    else
-      started = System.monotonic_time(:millisecond)
 
-      result =
-        FrictionRidge.render(spec.kind, spec.numeric_code, subject_seed, spec.capture,
-          label: Path.basename(dir),
-          renderer: renderer
-        )
+    duration_ms = System.monotonic_time(:millisecond) - started
 
-      duration_ms = System.monotonic_time(:millisecond) - started
+    case result do
+      {:ok, %{image: png, meta: meta, generator: generator}} ->
+        base
+        |> Map.merge(%{
+          meta: summarize(meta),
+          ground_truth: Map.put(meta, "generator", generator)
+        })
+        |> stored(run, subject, png, duration_ms)
 
-      case result do
-        {:ok, %{image: png, meta: meta, generator: generator}} ->
-          File.write!(path, png)
-          write_json(Path.join(dir, ground_truth), Map.put(meta, "generator", generator))
-
-          Map.merge(record, %{
-            status: "ok",
-            duration_ms: duration_ms,
-            meta: summarize(meta),
-            ground_truth: ground_truth
-          })
-
-        {:error, message} ->
-          Map.merge(record, %{status: "error", duration_ms: duration_ms, error: message})
-      end
+      {:error, message} ->
+        failed(base, "error", message, duration_ms)
     end
   end
 
-  defp existing_ground_truth(dir, file) do
-    case File.read(Path.join(dir, file)) do
-      {:ok, json} -> %{meta: summarize(Jason.decode!(json)), ground_truth: file}
-      {:error, _reason} -> %{}
+  defp stored(base, run, subject, png, duration_ms) do
+    key = Storage.key(run.name, subject.name, base.shot)
+
+    case Storage.put(key, png) do
+      {:ok, file} ->
+        base
+        |> Map.merge(file)
+        |> Map.merge(%{status: "ok", content_type: "image/png", duration_ms: duration_ms})
+
+      {:error, reason} ->
+        failed(base, "error", "couldn't store the image: #{inspect(reason)}", duration_ms)
     end
   end
 
-  # The per-shot record keeps the small facts (pattern classes, counts,
-  # verification scores); minutiae and drift point lists stay in the
-  # ground-truth JSON next to the image.
+  defp failed(base, status, message, duration_ms) do
+    Map.merge(base, %{
+      status: status,
+      error: message,
+      duration_ms: duration_ms,
+      storage_key: nil,
+      byte_size: nil,
+      sha256: nil
+    })
+  end
+
+  # `meta` keeps the small facts (pattern classes, counts, verification
+  # scores) for pages and reports; minutiae and drift point lists stay in the
+  # full ground truth.
   defp summarize(meta) do
     meta
     |> Map.drop(["minutiae", "generator"])
@@ -310,7 +331,7 @@ defmodule Phantom.Biometrics.Harness do
   @doc "A random run seed."
   def random_seed, do: :rand.uniform(2_147_483_646)
 
-  @doc "The run directory name used when none is given: `<utc timestamp>-seed<seed>`."
+  @doc "The run name used when none is given: `<utc timestamp>-seed<seed>`."
   def default_run_name(seed) do
     timestamp =
       DateTime.utc_now()
@@ -318,68 +339,4 @@ defmodule Phantom.Biometrics.Harness do
 
     "#{timestamp}-seed#{seed}"
   end
-
-  defp write_json(path, data), do: File.write!(path, Jason.encode_to_iodata!(data, pretty: true))
-
-  defp write_contact_sheet(run_dir, config, subjects) do
-    rows =
-      Enum.map(subjects, fn subject ->
-        cells =
-          Enum.map(config.shots, fn shot ->
-            record = Enum.find(subject.shots, &(&1.shot == shot))
-            src = "#{subject.id}/#{record.file}"
-
-            image =
-              if record.status in ["ok", "existing"],
-                do: ~s(<a href="#{src}"><img src="#{src}" loading="lazy"></a>),
-                else: ~s(<div class="missing">#{escape(record.error || record.status)}</div>)
-
-            ~s(<td title="#{escape(record.prompt || Shots.label(shot))}">#{image}</td>)
-          end)
-
-        """
-        <tr>
-          <th><strong>#{subject.id}</strong><br><small>seed #{subject.seed}</small>
-            <p>#{escape(subject.description)}</p></th>
-          #{cells}
-        </tr>
-        """
-      end)
-
-    headers = Enum.map(config.shots, &"<th>#{&1}</th>")
-
-    html = """
-    <!doctype html>
-    <html lang="en">
-    <head>
-    <meta charset="utf-8">
-    <title>Biometrics #{escape(config.run)}</title>
-    <style>
-      body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; background: #f4f4f5; color: #18181b; }
-      table { border-collapse: collapse; }
-      th, td { border: 1px solid #d4d4d8; padding: 6px; vertical-align: top; background: #fff; }
-      thead th { position: sticky; top: 0; font-weight: 600; }
-      tbody th { width: 220px; text-align: left; font-weight: normal; }
-      img { width: 220px; display: block; }
-      .missing { width: 220px; height: 275px; display: grid; place-items: center; color: #b91c1c;
-        background: #fef2f2; text-align: center; padding: 8px; box-sizing: border-box; }
-    </style>
-    </head>
-    <body>
-    <h1>Synthetic faces: #{escape(config.run)}</h1>
-    <p>Seed #{config.seed} · prompts #{config.prompt_version} · #{config.steps} steps ·
-      #{length(subjects)}/#{config.subjects} subjects · hover an image for its prompt.
-      <strong>Synthetic test data, not real people.</strong></p>
-    <table>
-      <thead><tr><th>Subject</th>#{headers}</tr></thead>
-      <tbody>#{rows}</tbody>
-    </table>
-    </body>
-    </html>
-    """
-
-    File.write!(Path.join(run_dir, "index.html"), html)
-  end
-
-  defp escape(text), do: text |> Plug.HTML.html_escape() |> IO.iodata_to_binary()
 end

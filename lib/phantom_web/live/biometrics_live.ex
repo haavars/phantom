@@ -32,6 +32,7 @@ defmodule PhantomWeb.BiometricsLive do
       |> assign(:face_shots, FacePrompts.shots())
       |> assign(:ridge_groups, Shots.ridge_groups())
       |> assign_form(RunRequest.changeset(%{}))
+      |> stream_configure(:runs, dom_id: &"runs-#{&1.name}")
       |> stream(:runs, runs)
 
     {:ok, socket}
@@ -399,7 +400,7 @@ defmodule PhantomWeb.BiometricsLive do
                 <div class="aspect-[4/5] w-20 shrink-0 overflow-hidden rounded-lg bg-white">
                   <img
                     :if={run.cover}
-                    src={image_url(run.name, elem(run.cover, 0), elem(run.cover, 1))}
+                    src={image_url(run.cover)}
                     alt=""
                     loading="lazy"
                     class="size-full object-cover transition duration-300 group-hover:scale-105"
@@ -409,12 +410,28 @@ defmodule PhantomWeb.BiometricsLive do
                   <p class="truncate font-mono text-sm font-medium">{run.name}</p>
                   <p class="mt-1 text-xs text-base-content/60">{format_time(run.updated_at)}</p>
                   <p class="mt-2 text-xs text-base-content/70">
-                    {run.completed}/{run.subjects} subjects · {count_shots(run)} shots
+                    {run.completed_subjects}/{run.subject_count} subjects · {count_shots(run)} shots
                   </p>
                   <p class="mt-1 flex flex-wrap gap-1.5 text-[11px] text-base-content/50">
                     <span>seed {run.seed}</span>
                     <span :if={run.prompt_version}>· {run.prompt_version}</span>
                   </p>
+                  <span
+                    :if={
+                      run.status in ["cancelled", "failed"] and
+                        !(@progress && @progress.run == run.name)
+                    }
+                    id={"run-status-#{run.name}"}
+                    class={[
+                      "mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      if(run.status == "failed",
+                        do: "bg-error/10 text-error",
+                        else: "bg-base-200 text-base-content/60"
+                      )
+                    ]}
+                  >
+                    {run.status}
+                  </span>
                   <span
                     :if={@progress && @progress.run == run.name}
                     class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"

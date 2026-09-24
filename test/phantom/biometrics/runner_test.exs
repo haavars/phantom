@@ -1,13 +1,11 @@
 defmodule Phantom.Biometrics.RunnerTest do
   # The runner is an application-wide singleton running the harness in its own
   # task, so these tests share it and the Req.Test stubs globally.
-  use ExUnit.Case, async: false
+  use Phantom.DataCase, async: false
 
   import Phantom.BiometricsFixtures
 
-  alias Phantom.Biometrics.Runner
-
-  @moduletag :tmp_dir
+  alias Phantom.Biometrics.{Runner, Runs, Storage}
 
   setup {Req.Test, :set_req_test_to_shared}
 
@@ -16,12 +14,11 @@ defmodule Phantom.Biometrics.RunnerTest do
     on_exit(fn -> Runner.cancel() end)
   end
 
-  test "runs the harness in the background and broadcasts progress", %{tmp_dir: root} do
+  test "runs the harness in the background and broadcasts progress" do
     stub_qwen()
 
     assert {:ok, "bg-run"} =
              Runner.start_run(
-               out: root,
                run: "bg-run",
                seed: 1,
                subjects: 2,
@@ -31,17 +28,18 @@ defmodule Phantom.Biometrics.RunnerTest do
     assert_receive {:biometrics_run, :started,
                     %{run: "bg-run", total: 2, shots: ["mugshot_frontal"]}}
 
-    assert_receive {:biometrics_run, :progress, %{subject: %{id: "subject_001", shots: []}}}
-    assert_receive {:biometrics_run, :progress, %{subject: %{shots: [%{status: "ok"}]}}}
-    assert_receive {:biometrics_run, :subject_done, %{done: 1, subject: %{id: "subject_001"}}}
-    assert_receive {:biometrics_run, :subject_done, %{done: 2, subject: %{id: "subject_002"}}}
+    assert_receive {:biometrics_run, :progress, %{subject: %{name: "subject_001", images: []}}}
+    assert_receive {:biometrics_run, :progress, %{subject: %{images: [%{status: "ok"}]}}}
+    assert_receive {:biometrics_run, :subject_done, %{done: 1, subject: %{name: "subject_001"}}}
+    assert_receive {:biometrics_run, :subject_done, %{done: 2, subject: %{name: "subject_002"}}}
     assert_receive {:biometrics_run, :finished, %{run: "bg-run", status: :finished}}
 
     assert Runner.current() == nil
-    assert File.exists?(Path.join([root, "bg-run", "subject_002", "mugshot_frontal.png"]))
+    assert Storage.exists?("bg-run/subject_002/mugshot_frontal.png")
+    assert {:ok, %{status: "finished", completed_subjects: 2}} = Runs.summary("bg-run")
   end
 
-  test "allows one run at a time and can cancel it", %{tmp_dir: root} do
+  test "allows one run at a time and can cancel it" do
     test_pid = self()
 
     stub_qwen(
@@ -54,19 +52,22 @@ defmodule Phantom.Biometrics.RunnerTest do
       end
     )
 
-    assert {:ok, "slow-run"} = Runner.start_run(out: root, run: "slow-run", subjects: 1)
+    assert {:ok, "slow-run"} = Runner.start_run(run: "slow-run", subjects: 1)
+    assert {:ok, %{status: "running"}} = Runs.summary("slow-run")
     assert_receive :rendering
     assert %{run: "slow-run", status: :running} = Runner.current()
 
-    assert {:error, :busy} = Runner.start_run(out: root, run: "other-run")
+    assert {:error, :busy} = Runner.start_run(run: "other-run")
 
     assert :ok = Runner.cancel()
     assert_receive {:biometrics_run, :cancelled, %{run: "slow-run"}}
     assert Runner.current() == nil
+    assert {:ok, %{status: "cancelled"}} = Runs.summary("slow-run")
+    refute Runs.exists?("other-run")
   end
 
-  test "rejects unknown shots without starting a run", %{tmp_dir: root} do
-    assert {:error, message} = Runner.start_run(out: root, shots: ["selfie"])
+  test "rejects unknown shots without starting a run" do
+    assert {:error, message} = Runner.start_run(shots: ["selfie"])
     assert message =~ "selfie"
     refute_received {:biometrics_run, :started, _progress}
   end

@@ -1,7 +1,7 @@
 defmodule Phantom.Biometrics.Report do
   @moduledoc """
-  The quality report for a run's friction-ridge images, written to
-  `<run>/report.json` when a run finishes.
+  The quality report for a run's friction-ridge images, stored on the run
+  (`Phantom.Biometrics.Run`, `report`) when it finishes.
 
     * `"verification"`: how many fingers and slaps were verified, and how many
       were accepted first time, accepted after a retry, or rejected. Also the
@@ -24,36 +24,11 @@ defmodule Phantom.Biometrics.Report do
   @max_non_mated 3000
   @max_listed 20
 
-  def file, do: "report.json"
-
-  @doc "Builds the report from the run's subject records and writes it. Returns it, or nil."
-  def write(run_dir, subjects) do
-    case build(run_dir, subjects) do
-      nil ->
-        nil
-
-      report ->
-        File.write!(Path.join(run_dir, file()), Jason.encode_to_iodata!(report, pretty: true))
-        report
-    end
-  end
-
-  @doc "The report written for a run, or nil."
-  def read(run_dir) do
-    with {:ok, json} <- File.read(Path.join(run_dir, file())),
-         {:ok, %{} = report} <- Jason.decode(json) do
-      report
-    else
-      _ -> nil
-    end
-  end
-
-  @doc "The report for `subjects` (harness subject records) of the run in `run_dir`, or nil."
-  def build(run_dir, subjects) do
+  @doc "The report for `subjects` (with their images) of a run, or nil."
+  def build(subjects) do
     checks =
       for subject <- subjects,
-          %{status: status, meta: %{"verification" => %{} = check} = meta} <- subject.shots,
-          status in ["ok", "existing"],
+          %{status: "ok", meta: %{"verification" => %{} = check} = meta} <- subject.images,
           do: Map.put(check, "impression", meta["impression"])
 
     if checks == [] do
@@ -62,7 +37,7 @@ defmodule Phantom.Biometrics.Report do
       %{
         "threshold" => @threshold,
         "verification" => verification(checks),
-        "matching" => matching(run_dir, subjects)
+        "matching" => matching(subjects)
       }
     end
   end
@@ -92,14 +67,14 @@ defmodule Phantom.Biometrics.Report do
     }
   end
 
-  defp matching(run_dir, subjects) do
+  defp matching(subjects) do
     templates =
       for subject <- subjects,
-          %{status: status, ground_truth: file, capture: capture, shot: shot} <- subject.shots,
-          status in ["ok", "existing"] and is_binary(file),
+          %{status: "ok", ground_truth: %{} = truth, capture: capture, shot: shot} <-
+            subject.images,
           %{group: "rolled", numeric_code: fgp} <- [Shots.spec(shot)],
-          detected when is_list(detected) <- [detected(Path.join([run_dir, subject.id, file]))],
-          do: %{subject: subject.id, fgp: fgp, capture: capture, shot: shot, detected: detected}
+          %{"verification" => %{"detected" => detected}} when is_list(detected) <- [truth],
+          do: %{subject: subject.name, fgp: fgp, capture: capture, shot: shot, detected: detected}
 
     mated =
       for {_key, group} <- Enum.group_by(templates, &{&1.subject, &1.fgp}),
@@ -154,15 +129,6 @@ defmodule Phantom.Biometrics.Report do
     |> Enum.map(fn {{a, b}, score} ->
       %{"a" => "#{a.subject}/#{a.shot}", "b" => "#{b.subject}/#{b.shot}", "score" => score}
     end)
-  end
-
-  defp detected(path) do
-    with {:ok, json} <- File.read(path),
-         {:ok, %{"verification" => %{"detected" => detected}}} <- Jason.decode(json) do
-      detected
-    else
-      _ -> nil
-    end
   end
 
   # [1, 2, 3] -> [[1, 2, 3], [2, 3], [3]]

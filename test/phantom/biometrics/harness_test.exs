@@ -1,11 +1,9 @@
 defmodule Phantom.Biometrics.HarnessTest do
-  use ExUnit.Case, async: true
+  use Phantom.DataCase, async: true
 
-  import Phantom.BiometricsFixtures, only: [stub_ridge: 0, stub_ridge: 1]
+  import Phantom.BiometricsFixtures, only: [stub_ridge: 0, stub_ridge: 1, unique_run_name: 1]
 
-  alias Phantom.Biometrics.Harness
-
-  @moduletag :tmp_dir
+  alias Phantom.Biometrics.{Harness, Runs, Storage}
 
   @anchor_png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "anchor"
   @other_png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "other"
@@ -30,20 +28,26 @@ defmodule Phantom.Biometrics.HarnessTest do
     end)
   end
 
-  test "renders the anchor from text and conditions other shots on it", %{tmp_dir: tmp_dir} do
+  defp image(run, subject, shot) do
+    {:ok, subject} = Runs.get_subject(run, subject)
+    Enum.find(subject.images, &(&1.shot == shot))
+  end
+
+  test "renders the anchor from text and conditions other shots on it" do
     stub_service(self())
+    name = unique_run_name("faces")
 
     assert {:ok, result} =
              Harness.run(
-               out: tmp_dir,
-               run: "r1",
+               run: name,
                seed: 42,
                subjects: 2,
                steps: 20,
                shots: ["mugshot_left_profile", "icao_portrait"]
              )
 
-    assert [%{id: "subject_001"}, %{id: "subject_002"}] = result.subjects
+    assert [%{name: "subject_001"}, %{name: "subject_002"}] = result.subjects
+    assert %{name: ^name, seed: 42, status: "finished", subject_count: 2} = result.run
 
     # Anchor first, then the conditioned shots, for each subject.
     for _subject <- 1..2 do
@@ -53,56 +57,61 @@ defmodule Phantom.Biometrics.HarnessTest do
       assert_received {:render, %{"height" => "1152"}, [@anchor_png]}
     end
 
-    dir = Path.join([tmp_dir, "r1", "subject_001"])
-    assert File.read!(Path.join(dir, "mugshot_frontal.png")) == @anchor_png
-    assert File.read!(Path.join(dir, "mugshot_left_profile.png")) == @other_png
+    anchor = image(name, "subject_001", "mugshot_frontal")
+    profile = image(name, "subject_001", "mugshot_left_profile")
 
-    subject = dir |> Path.join("subject.json") |> File.read!() |> Jason.decode!()
-    assert Enum.map(subject["shots"], & &1["pos"]) == ["F", "L", "F"]
-    assert Enum.all?(subject["shots"], &(&1["status"] == "ok"))
+    assert anchor.storage_key == "#{name}/subject_001/mugshot_frontal.png"
+    assert Storage.read(anchor.storage_key) == {:ok, @anchor_png}
+    assert Storage.read(profile.storage_key) == {:ok, @other_png}
+    assert anchor.byte_size == byte_size(@anchor_png)
+    assert anchor.sha256 == :crypto.hash(:sha256, @anchor_png) |> Base.encode16(case: :lower)
+    assert profile.reference_id == anchor.id
+    assert profile.prompt =~ "left profile"
 
-    assert File.read!(result.index) =~ "subject_002/icao_portrait.png"
-    assert %{"seed" => 42} = Jason.decode!(File.read!(Path.join([tmp_dir, "r1", "run.json"])))
+    {:ok, subject} = Runs.get_subject(name, "subject_001")
+    assert Enum.map(subject.images, & &1.pos) == ["F", "L", "F"]
+    assert Enum.all?(subject.images, &(&1.status == "ok"))
+    assert subject.completed_at
+    assert %{"sex" => _, "age" => _} = subject.attributes
   end
 
-  test "resuming a run skips existing images and uses the same seeds", %{tmp_dir: tmp_dir} do
+  test "resuming a run keeps stored images and uses the same seeds" do
     stub_service(self())
-    opts = [out: tmp_dir, run: "r2", seed: 7, subjects: 1, shots: ["probe_aged"]]
+    opts = [run: unique_run_name("resume"), seed: 7, subjects: 1, shots: ["probe_aged"]]
 
     assert {:ok, first} = Harness.run(opts)
     assert_received {:render, %{"seed" => anchor_seed}, []}
     assert_received {:render, _params, [_anchor]}
 
-    File.rm!(Path.join([tmp_dir, "r2", "subject_001", "probe_aged.png"]))
+    probe = image(opts[:run], "subject_001", "probe_aged")
+    File.rm!(Path.join(Storage.Local.root(), probe.storage_key))
     assert {:ok, second} = Harness.run(opts)
 
     refute_received {:render, _params, []}
     assert_received {:render, _params, [@anchor_png]}
 
-    [%{shots: [anchor, _probe]}] = second.subjects
-    assert anchor.status == "existing"
+    [%{images: [anchor, _probe]}] = second.subjects
+    assert anchor.id == hd(hd(first.subjects).images).id
     assert Integer.to_string(anchor.seed) == anchor_seed
 
     assert Enum.map(first.subjects, & &1.description) ==
              Enum.map(second.subjects, & &1.description)
   end
 
-  test "skips conditioned shots when the anchor fails", %{tmp_dir: tmp_dir} do
+  test "skips conditioned shots when the anchor fails" do
     Req.Test.stub(Phantom.ImageGeneration, fn conn ->
       Plug.Conn.send_resp(conn, 500, "boom")
     end)
 
-    assert {:ok, %{subjects: [%{shots: [anchor, profile]}]}} =
+    assert {:ok, %{subjects: [%{images: [anchor, profile]}]}} =
              Harness.run(
-               out: tmp_dir,
-               run: "r3",
+               run: unique_run_name("broken"),
                subjects: 1,
                shots: ["mugshot_left_profile"]
              )
 
-    assert anchor.status == "error"
-    assert profile.status == "skipped"
-    assert File.read!(Path.join([tmp_dir, "r3", "index.html"])) =~ "anchor shot failed"
+    assert %{status: "error", storage_key: nil} = anchor
+    assert %{status: "skipped", error: "anchor shot failed"} = profile
   end
 
   test "rejects unknown shots" do
@@ -110,19 +119,12 @@ defmodule Phantom.Biometrics.HarnessTest do
     assert message =~ "selfie"
   end
 
-  test "renders friction-ridge shots from the subject seed, with ground truth and no face anchor",
-       %{tmp_dir: tmp_dir} do
+  test "renders friction-ridge shots from the subject seed, with ground truth and no face anchor" do
     stub_ridge(notify: self())
+    name = unique_run_name("ridge")
 
     assert {:ok, %{subjects: [subject]}} =
-             Harness.run(
-               out: tmp_dir,
-               run: "ridge",
-               seed: 5,
-               subjects: 1,
-               shots: ["slaps"],
-               captures: 2
-             )
+             Harness.run(run: name, seed: 5, subjects: 1, shots: ["slaps"], captures: 2)
 
     renders =
       for _ <- 1..6 do
@@ -144,71 +146,54 @@ defmodule Phantom.Biometrics.HarnessTest do
     # Diffusion is the default renderer.
     assert renders |> Enum.map(& &1["renderer"]) |> Enum.uniq() == ["diffusion"]
 
-    dir = Path.join([tmp_dir, "ridge", "subject_001"])
-    refute File.exists?(Path.join(dir, "mugshot_frontal.png"))
-    assert File.exists?(Path.join(dir, "slap_15_c2.png"))
+    refute Enum.any?(subject.images, &(&1.shot == "mugshot_frontal"))
+    assert Storage.exists?("#{name}/subject_001/slap_15_c2.png")
 
-    ground_truth = dir |> Path.join("slap_13.json") |> File.read!() |> Jason.decode!()
-    assert length(ground_truth["minutiae"]) == 2
-    assert ground_truth["generator"] == "ridgegen/test"
-
-    record =
-      dir
-      |> Path.join("subject.json")
-      |> File.read!()
-      |> Jason.decode!()
-      |> Map.get("shots")
-      |> hd()
-
-    assert %{
-             "shot" => "slap_13",
-             "pos" => "13",
-             "status" => "ok",
-             "ground_truth" => "slap_13.json"
-           } = record
-
-    assert record["meta"]["minutiae_count"] == 2
-    refute Map.has_key?(record["meta"], "minutiae")
+    slap = image(name, "subject_001", "slap_13")
+    assert %{shot: "slap_13", modality: "ridge", pos: "13", status: "ok", capture: 0} = slap
+    assert length(slap.ground_truth["minutiae"]) == 2
+    assert slap.ground_truth["generator"] == "ridgegen/test"
+    assert slap.meta["minutiae_count"] == 2
+    refute Map.has_key?(slap.meta, "minutiae")
+    assert image(name, "subject_001", "slap_13_c2").capture == 1
   end
 
-  test "passes the renderer to the service and records it", %{tmp_dir: tmp_dir} do
+  test "passes the renderer to the service and records it" do
     stub_ridge(notify: self())
 
-    opts = [
-      out: tmp_dir,
-      run: "draft",
-      seed: 5,
-      subjects: 1,
-      shots: ["rolled_04"],
-      renderer: "procedural"
-    ]
+    assert {:ok, %{run: run}} =
+             Harness.run(
+               run: unique_run_name("draft"),
+               seed: 5,
+               subjects: 1,
+               shots: ["rolled_04"],
+               renderer: "procedural"
+             )
 
-    assert {:ok, _result} = Harness.run(opts)
     assert_received {:ridge_render, %{"renderer" => "procedural"}}
-    assert {:ok, %{renderer: "procedural"}} = Phantom.Biometrics.Runs.summary("draft", tmp_dir)
+    assert run.renderer == "procedural"
   end
 
-  test "resuming keeps the ground truth of existing friction-ridge shots", %{tmp_dir: tmp_dir} do
+  test "resuming keeps the ground truth of stored friction-ridge shots" do
     stub_ridge(notify: self())
-    opts = [out: tmp_dir, run: "ridge-resume", seed: 5, subjects: 1, shots: ["rolled_04"]]
+    opts = [run: unique_run_name("ridge-resume"), seed: 5, subjects: 1, shots: ["rolled_04"]]
 
     assert {:ok, _result} = Harness.run(opts)
     assert_received {:ridge_render, _body}
 
-    assert {:ok, %{subjects: [%{shots: [record]}]}} = Harness.run(opts)
+    assert {:ok, %{subjects: [%{images: [image]}]}} = Harness.run(opts)
     refute_received {:ridge_render, _body}
 
-    assert %{status: "existing", ground_truth: "rolled_04.json", meta: %{"pattern" => "whorl"}} =
-             record
+    assert %{status: "ok", meta: %{"pattern" => "whorl"}, ground_truth: %{"minutiae" => [_, _]}} =
+             image
   end
 
-  test "writes a quality report for verified friction-ridge shots", %{tmp_dir: tmp_dir} do
+  test "stores a quality report for verified friction-ridge shots" do
     stub_ridge()
 
-    assert {:ok, %{report: report}} =
+    assert {:ok, %{run: run, report: report}} =
              Harness.run(
-               out: tmp_dir,
-               run: "report",
+               run: unique_run_name("report"),
                seed: 5,
                subjects: 2,
                shots: ["rolled_02", "rolled_05", "rolled_07"],
@@ -230,38 +215,26 @@ defmodule Phantom.Biometrics.HarnessTest do
              "false_matches" => 0
            } = report["matching"]
 
-    run_dir = Path.join(tmp_dir, "report")
-    assert Phantom.Biometrics.Report.read(run_dir) == report
-    assert {:ok, %{report: ^report}} = Phantom.Biometrics.Runs.summary("report", tmp_dir)
+    assert {:ok, %{report: ^report}} = Runs.get_run(run.name)
 
-    # The shot record keeps the scores; the minutiae lists stay in the ground truth.
-    [record | _] =
-      Path.join([run_dir, "subject_001", "subject.json"])
-      |> File.read!()
-      |> Jason.decode!()
-      |> Map.get("shots")
-
-    assert %{"nfiq2" => 52, "accepted" => true} = check = record["meta"]["verification"]
+    # `meta` keeps the scores; the minutiae lists stay in the ground truth.
+    finger = image(run.name, "subject_001", "rolled_02")
+    assert %{"nfiq2" => 52, "accepted" => true} = check = finger.meta["verification"]
     refute Map.has_key?(check, "detected")
-
-    ground_truth =
-      Path.join([run_dir, "subject_001", "rolled_02.json"]) |> File.read!() |> Jason.decode!()
-
-    assert length(ground_truth["verification"]["detected"]) == 2
+    assert length(finger.ground_truth["verification"]["detected"]) == 2
   end
 
-  test "runs without verified images get no report", %{tmp_dir: tmp_dir} do
+  test "runs without verified images get no report" do
     stub_service(self())
 
-    assert {:ok, %{report: nil}} =
+    assert {:ok, %{run: run, report: nil}} =
              Harness.run(
-               out: tmp_dir,
-               run: "faces",
+               run: unique_run_name("no-report"),
                seed: 5,
                subjects: 1,
                shots: ["mugshot_left_profile"]
              )
 
-    refute File.exists?(Path.join([tmp_dir, "faces", "report.json"]))
+    assert run.report == nil
   end
 end

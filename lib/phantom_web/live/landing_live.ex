@@ -6,7 +6,7 @@ defmodule PhantomWeb.LandingLive do
 
   use PhantomWeb, :live_view
 
-  import PhantomWeb.BiometricsComponents, only: [pattern_abbrev: 1, pattern_name: 1]
+  import PhantomWeb.BiometricsComponents, only: [image_url: 1, pattern_abbrev: 1, pattern_name: 1]
 
   alias Phantom.Biometrics.{Gallery, Shots}
 
@@ -215,7 +215,7 @@ defmodule PhantomWeb.LandingLive do
   # before anything has been generated.
   defp hero_visual(assigns) do
     assigns =
-      assign(assigns, :print_file, assigns.print && hero_print(assigns.print))
+      assign(assigns, :print_image, assigns.print && hero_print(assigns.print))
 
     ~H"""
     <div id="hero-visual" class="relative mx-auto h-[26rem] w-full max-w-md" aria-hidden="true">
@@ -223,7 +223,7 @@ defmodule PhantomWeb.LandingLive do
         <div class="aspect-[4/5]">
           <%= if @face do %>
             <img
-              src={file_url(@face, @face.portrait)}
+              src={image_url(@face.portrait)}
               alt=""
               class="size-full object-cover"
               fetchpriority="high"
@@ -246,9 +246,9 @@ defmodule PhantomWeb.LandingLive do
 
       <div class="absolute bottom-0 right-0 w-[56%] rotate-[5deg] overflow-hidden rounded-2xl border border-base-300 bg-white shadow-2xl transition duration-500 hover:rotate-[3deg]">
         <div class="aspect-[16/15] p-3">
-          <%= if @print_file do %>
+          <%= if @print_image do %>
             <img
-              src={file_url(@print, @print_file)}
+              src={image_url(@print_image)}
               alt=""
               class="size-full object-contain mix-blend-multiply"
             />
@@ -371,7 +371,7 @@ defmodule PhantomWeb.LandingLive do
           <%= cond do %>
             <% @identity.portrait -> %>
               <img
-                src={file_url(@identity, @identity.portrait)}
+                src={image_url(@identity.portrait)}
                 alt={"Synthetic portrait of #{@identity.description}"}
                 loading="lazy"
                 class="size-full object-cover text-transparent transition duration-500 group-hover:scale-[1.03]"
@@ -382,7 +382,7 @@ defmodule PhantomWeb.LandingLive do
               >
                 <img
                   :for={print <- @strip}
-                  src={file_url(@identity, print.file)}
+                  src={image_url(print.image)}
                   alt=""
                   loading="lazy"
                   class="aspect-square w-full object-cover text-transparent mix-blend-multiply"
@@ -392,8 +392,8 @@ defmodule PhantomWeb.LandingLive do
               <div class="grid size-full grid-cols-2 gap-px bg-neutral-200">
                 <div :for={print <- @mosaic} class="overflow-hidden bg-white">
                   <img
-                    src={file_url(@identity, print.file)}
-                    alt={"Rolled print, #{Shots.label(Path.rootname(print.file))}"}
+                    src={image_url(print.image)}
+                    alt={"Rolled print, #{Shots.label(print.image.shot)}"}
                     loading="lazy"
                     class="size-full scale-[1.2] object-cover text-transparent mix-blend-multiply transition duration-500 group-hover:scale-[1.26]"
                   />
@@ -434,7 +434,7 @@ defmodule PhantomWeb.LandingLive do
             <ol class="mt-1.5 grid grid-cols-10 gap-0.5">
               <li
                 :for={print <- @identity.prints}
-                title={"#{Shots.label(Path.rootname(print.file))}: #{pattern_name(print.pattern) || "unknown"}"}
+                title={"#{Shots.label(print.image.shot)}: #{pattern_name(print.pattern) || "unknown"}"}
                 class={[
                   "rounded py-0.5 text-center font-mono text-[9px] font-semibold",
                   pattern_tone(print.pattern)
@@ -450,16 +450,13 @@ defmodule PhantomWeb.LandingLive do
     """
   end
 
-  defp file_url(identity, file),
-    do: ~p"/biometrics-files/#{identity.run}/#{identity.subject}/#{file}"
-
   # The identity's own page, with every image of them.
   defp subject_path(identity), do: ~p"/biometrics/#{identity.run}/#{identity.subject}"
 
   # The right index is the customary finger to show; fall back to the first.
   defp hero_print(%{prints: prints}) do
-    Enum.find_value(prints, fn print -> print.fgp == 2 && print.file end) ||
-      (List.first(prints) || %{file: nil}).file
+    Enum.find_value(prints, fn print -> print.fgp == 2 && print.image end) ||
+      (List.first(prints) || %{image: nil}).image
   end
 
   defp chips(counts) do

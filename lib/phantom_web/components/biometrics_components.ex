@@ -44,28 +44,29 @@ defmodule PhantomWeb.BiometricsComponents do
   @doc "Estimated seconds to render one image of `group`."
   def seconds_per_image(group), do: Map.get(@seconds_per_image, group, 5)
 
-  def image_url(run, subject_id, file), do: ~p"/biometrics-files/#{run}/#{subject_id}/#{file}"
+  @doc "URL of an image's file."
+  def image_url(%{id: id}), do: ~p"/images/#{id}"
+
+  @doc "URL of an image's ground truth (friction-ridge shots)."
+  def ground_truth_url(%{id: id}), do: ~p"/images/#{id}/ground-truth"
 
   @doc "The first shot of `shots` without a record in `subject`, i.e. the one rendering next."
   def next_shot(_shots, nil), do: nil
 
   def next_shot(shots, subject) do
-    done = MapSet.new(subject.shots, & &1.shot)
+    done = MapSet.new(subject.images, & &1.shot)
     Enum.find(shots, &(not MapSet.member?(done, &1)))
   end
 
   @doc "Fraction of a run's images that are done, from a `Runner` progress snapshot."
   def run_fraction(%{total: total, shots: shots, done: done, subject: subject}) do
     per_subject = max(length(shots), 1)
-    in_subject = if subject, do: length(subject.shots), else: 0
+    in_subject = if subject, do: length(subject.images), else: 0
     min((done * per_subject + in_subject) / max(total * per_subject, 1), 1.0)
   end
 
-  def format_time(unix) when is_integer(unix) and unix > 0 do
-    unix |> DateTime.from_unix!() |> Calendar.strftime("%Y-%m-%d %H:%M UTC")
-  end
-
-  def format_time(_unix), do: "–"
+  def format_time(%DateTime{} = time), do: Calendar.strftime(time, "%Y-%m-%d %H:%M UTC")
+  def format_time(_time), do: "–"
 
   def format_duration(nil), do: "–"
   def format_duration(ms), do: "#{Float.round(ms / 1000, 1)} s"
@@ -170,7 +171,7 @@ defmodule PhantomWeb.BiometricsComponents do
 
     assigns =
       assigns
-      |> assign(:record, Enum.find(assigns.subject.shots, &(&1.shot == assigns.shot)))
+      |> assign(:record, Enum.find(assigns.subject.images, &(&1.shot == assigns.shot)))
       |> assign(:aspect, "aspect-ratio: #{w} / #{h}")
       |> assign(:ridge?, spec.modality == :ridge)
       |> assign(:width, tile_width(spec.group, w, h))
@@ -181,11 +182,11 @@ defmodule PhantomWeb.BiometricsComponents do
       |> assign(:check, assigns.record && verification(assigns.record))
 
     ~H"""
-    <figure id={"tile-#{@subject.id}-#{@shot}"} class={["shrink-0", @width]}>
+    <figure id={"tile-#{@subject.name}-#{@shot}"} class={["shrink-0", @width]}>
       <%= cond do %>
-        <% @record && @record.status in ["ok", "existing"] -> %>
+        <% @record && @record.status == "ok" -> %>
           <.link
-            patch={shot_path(@run, @subject.id, @shot, @focused?)}
+            patch={shot_path(@run, @subject.name, @shot, @focused?)}
             class={[
               "group relative block overflow-hidden rounded-xl ring-1 transition hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
               if(@check && @check["accepted"] == false, do: "ring-error/60", else: "ring-base-300"),
@@ -194,8 +195,8 @@ defmodule PhantomWeb.BiometricsComponents do
             style={@aspect}
           >
             <img
-              src={image_url(@run, @subject.id, @record.file)}
-              alt={"#{shot_label(@shot)} of #{@subject.id}"}
+              src={image_url(@record)}
+              alt={"#{shot_label(@shot)} of #{@subject.name}"}
               loading="lazy"
               class={[
                 "size-full text-transparent transition duration-300 group-hover:scale-[1.03]",

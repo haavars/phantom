@@ -7,14 +7,11 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
 
   alias Phantom.Biometrics.Runner
 
-  @moduletag :tmp_dir
-
   setup {Req.Test, :set_req_test_to_shared}
 
-  setup %{tmp_dir: root} do
-    use_output_dir(root)
+  setup do
     on_exit(fn -> Runner.cancel() end)
-    {:ok, run: create_run(root)}
+    {:ok, run: create_run()}
   end
 
   test "shows every subject with its shots", %{conn: conn, run: run} do
@@ -102,15 +99,10 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     assert to == ~p"/biometrics/#{run}"
   end
 
-  test "resumes an incomplete run and shows new subjects live", %{
-    conn: conn,
-    run: run,
-    tmp_dir: root
-  } do
+  test "resumes an incomplete run and shows new subjects live", %{conn: conn, run: run} do
     # Pretend the run was meant to have a third subject.
-    run_json = Path.join([root, run, "run.json"])
-    config = run_json |> File.read!() |> Jason.decode!()
-    File.write!(run_json, Jason.encode!(%{config | "subjects" => 3}))
+    {:ok, stored} = Phantom.Biometrics.Runs.summary(run)
+    stored |> Ecto.Changeset.change(subject_count: 3) |> Phantom.Repo.update!()
 
     stub_qwen()
     Runner.subscribe()
@@ -128,9 +120,8 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     assert {:error, {:live_redirect, %{to: "/biometrics"}}} = live(conn, ~p"/biometrics/missing")
   end
 
-  test "groups friction-ridge shots and shows their ground truth", %{conn: conn, tmp_dir: root} do
-    run =
-      create_run(root, run: "ridge-run", subjects: 1, shots: ["mugshot_left_profile", "rolled"])
+  test "groups friction-ridge shots and shows their ground truth", %{conn: conn} do
+    run = create_run(subjects: 1, shots: ["mugshot_left_profile", "rolled"])
 
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
 
@@ -142,12 +133,12 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     view |> element("#tile-subject_001-rolled_03 a") |> render_click()
     assert has_element?(view, "#ridge-meta", "whorl")
     assert has_element?(view, "#ridge-meta", "2 cores, 2 deltas")
-    assert has_element?(view, ~s(#ground-truth-link[href$="/subject_001/rolled_03.json"]))
+    assert has_element?(view, ~s(#ground-truth-link[href$="/ground-truth"]))
     refute has_element?(view, "#shot-prompt")
   end
 
-  test "shows the quality report and each shot's verification", %{conn: conn, tmp_dir: root} do
-    run = create_run(root, run: "verified-run", subjects: 1, shots: ["rolled"])
+  test "shows the quality report and each shot's verification", %{conn: conn} do
+    run = create_run(subjects: 1, shots: ["rolled"])
 
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
 
@@ -166,7 +157,7 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     assert has_element?(view, "#verification", "97%")
   end
 
-  test "opens a face shot of the subject that is still rendering", %{conn: conn, tmp_dir: root} do
+  test "opens a face shot of the subject that is still rendering", %{conn: conn} do
     test_pid = self()
 
     # The anchor renders; the next shot blocks, so the run stays active with a
@@ -194,7 +185,7 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     Runner.subscribe()
 
     {:ok, "live-run"} =
-      Runner.start_run(out: root, run: "live-run", subjects: 1, shots: ["mugshot_left_profile"])
+      Runner.start_run(run: "live-run", subjects: 1, shots: ["mugshot_left_profile"])
 
     assert_receive :rendering
 

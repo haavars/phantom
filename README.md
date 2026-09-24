@@ -19,7 +19,7 @@ a local ridge generator, both running as small local Python services that this a
 2. **Every time**: just run the Phoenix app —
 
    ```bash
-   mix setup   # installs deps and assets; skips fine if you don't have Postgres running, it isn't used yet
+   mix setup   # installs deps and assets, creates and migrates the Postgres database
    mix phx.server
    ```
 
@@ -52,8 +52,9 @@ line:
 mix biometrics.generate --subjects 5 --shots faces,rolled,slaps,palms,card --captures 2
 ```
 
-Images, ground-truth JSON and an `index.html` contact sheet are written to `data/synthetic/biometrics/<run>/`. The
-same seed reproduces the same subjects, and reusing `--run` resumes a run. The output is synthetic test data
+Runs, subjects, images and their ground truth are stored in Postgres; the image files are written to
+`data/synthetic/biometrics/<run>/<subject>/`. The same seed reproduces the same subjects, and reusing `--run`
+resumes a run. The output is synthetic test data
 only; don't use it as evidence of matching accuracy or send it to live systems.
 
 More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in

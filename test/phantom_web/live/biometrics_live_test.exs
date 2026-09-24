@@ -7,12 +7,9 @@ defmodule PhantomWeb.BiometricsLiveTest do
 
   alias Phantom.Biometrics.Runner
 
-  @moduletag :tmp_dir
-
   setup {Req.Test, :set_req_test_to_shared}
 
-  setup %{tmp_dir: root} do
-    use_output_dir(root)
+  setup do
     stub_qwen()
     stub_ridge()
     on_exit(fn -> Runner.cancel() end)
@@ -30,16 +27,16 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#nav-biometrics")
   end
 
-  test "lists existing runs", %{conn: conn, tmp_dir: root} do
-    run = create_run(root)
+  test "lists existing runs", %{conn: conn} do
+    run = create_run()
     {:ok, view, _html} = live(conn, ~p"/biometrics")
 
     assert has_element?(view, ~s(#runs-#{run}[href="/biometrics/#{run}"]))
     refute has_element?(view, "#runs-empty")
   end
 
-  test "validates the form and updates the estimate", %{conn: conn, tmp_dir: root} do
-    run = create_run(root)
+  test "validates the form and updates the estimate", %{conn: conn} do
+    run = create_run()
     {:ok, view, _html} = live(conn, ~p"/biometrics")
 
     view
@@ -56,7 +53,7 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#run-estimate", "4 images")
   end
 
-  test "starts a run and navigates to it", %{conn: conn, tmp_dir: root} do
+  test "starts a run and navigates to it", %{conn: conn} do
     Runner.subscribe()
     {:ok, view, _html} = live(conn, ~p"/biometrics")
 
@@ -68,11 +65,12 @@ defmodule PhantomWeb.BiometricsLiveTest do
              |> render_submit()
 
     assert_receive {:biometrics_run, :finished, %{run: "ui-run"}}
-    assert File.exists?(Path.join([root, "ui-run", "subject_001", "rolled_10.png"]))
-    refute File.exists?(Path.join([root, "ui-run", "subject_001", "mugshot_frontal.png"]))
+    assert {:ok, %{images: images}} = Phantom.Biometrics.Runs.get_subject("ui-run", "subject_001")
+    assert Enum.any?(images, &(&1.shot == "rolled_10" and &1.status == "ok"))
+    refute Enum.any?(images, &(&1.shot == "mugshot_frontal"))
   end
 
-  test "shows the active run while it renders and cancels it", %{conn: conn, tmp_dir: root} do
+  test "shows the active run while it renders and cancels it", %{conn: conn} do
     test_pid = self()
 
     stub_qwen(
@@ -87,7 +85,7 @@ defmodule PhantomWeb.BiometricsLiveTest do
 
     Runner.subscribe()
     {:ok, view, _html} = live(conn, ~p"/biometrics")
-    {:ok, "busy-run"} = Runner.start_run(out: root, run: "busy-run", subjects: 1)
+    {:ok, "busy-run"} = Runner.start_run(run: "busy-run", subjects: 1)
     assert_receive :rendering
 
     assert has_element?(view, "#active-run", "busy-run")

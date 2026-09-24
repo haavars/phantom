@@ -117,14 +117,23 @@ defmodule Phantom.BiometricsFixtures do
 
   defp verification_meta(_body), do: %{}
 
-  @doc "Creates a run under `root` with the stubbed service. Returns its name."
-  def create_run(root, opts \\ []) do
+  @doc """
+  Creates a run with the stubbed services and returns its name. Names are
+  unique by default, since every test shares the storage root
+  (`config :phantom, :biometrics_output_dir`).
+  """
+  def create_run(opts \\ []) do
     stub_qwen()
     stub_ridge()
 
     opts =
       Keyword.merge(
-        [out: root, run: "fixture-run", seed: 42, subjects: 2, shots: ["mugshot_left_profile"]],
+        [
+          run: unique_run_name(),
+          seed: 42,
+          subjects: 2,
+          shots: ["mugshot_left_profile"]
+        ],
         opts
       )
 
@@ -132,16 +141,6 @@ defmodule Phantom.BiometricsFixtures do
     Keyword.fetch!(opts, :run)
   end
 
-  @doc """
-  Points `:biometrics_output_dir` at `root` for the rest of the test. The setting is
-  global, so only use this from `async: false` tests.
-  """
-  def use_output_dir(root) do
-    previous = Application.get_env(:phantom, :biometrics_output_dir)
-    Application.put_env(:phantom, :biometrics_output_dir, root)
-
-    ExUnit.Callbacks.on_exit(fn ->
-      Application.put_env(:phantom, :biometrics_output_dir, previous)
-    end)
-  end
+  @doc "A run name no other test uses."
+  def unique_run_name(prefix \\ "run"), do: "#{prefix}-#{System.unique_integer([:positive])}"
 end

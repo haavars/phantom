@@ -1,5 +1,5 @@
 defmodule Phantom.Biometrics.RunRequestTest do
-  use ExUnit.Case, async: true
+  use Phantom.DataCase, async: true
 
   alias Phantom.Biometrics.{FacePrompts, RunRequest}
 

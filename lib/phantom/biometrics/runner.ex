@@ -12,12 +12,16 @@ defmodule Phantom.Biometrics.Runner do
       %{run: name, seed: seed, shots: [shot_id], total: subjects, done: finished_subjects,
         subject: current_subject_or_nil, status: :running | event, error: message_or_nil}
 
-  `subject` has the same shape as a finished subject, with the shots rendered so far.
+  `subject` is a `Phantom.Biometrics.Subject` with the images rendered so far.
+
+  The run itself is recorded in the database (`Phantom.Biometrics.Runs`), so
+  its status survives restarts: runs interrupted by one are marked cancelled
+  when the application starts (`Runs.interrupt_running/0`), ready to be resumed.
   """
 
   use GenServer
 
-  alias Phantom.Biometrics.Harness
+  alias Phantom.Biometrics.{Harness, Runs}
 
   @topic "biometrics:runs"
 
@@ -49,34 +53,22 @@ defmodule Phantom.Biometrics.Runner do
     {:reply, {:error, :busy}, state}
   end
 
+  # The run is recorded before replying, so the caller can link to it.
   def handle_call({:start_run, opts}, _from, state) do
-    case Harness.resolve_shots(
-           Keyword.get(opts, :shots, ["faces"]),
-           Keyword.get(opts, :captures, 1)
-         ) do
-      {:ok, shots} ->
-        seed = Keyword.get_lazy(opts, :seed, &Harness.random_seed/0)
-        run = Keyword.get_lazy(opts, :run, fn -> Harness.default_run_name(seed) end)
+    case Harness.start(opts) do
+      {:ok, run} ->
         runner = self()
-
-        harness_opts =
-          Keyword.merge(opts,
-            seed: seed,
-            run: run,
-            shots: shots,
-            on_progress: &send(runner, {:harness, &1})
-          )
 
         task =
           Task.Supervisor.async_nolink(Phantom.Biometrics.TaskSupervisor, fn ->
-            Harness.run(harness_opts)
+            Harness.execute(run, Keyword.put(opts, :on_progress, &send(runner, {:harness, &1})))
           end)
 
         progress = %{
-          run: run,
-          seed: seed,
-          shots: shots,
-          total: Keyword.get(opts, :subjects, 3),
+          run: run.name,
+          seed: run.seed,
+          shots: run.shots,
+          total: run.subject_count,
           done: 0,
           subject: nil,
           status: :running,
@@ -84,15 +76,18 @@ defmodule Phantom.Biometrics.Runner do
         }
 
         broadcast(:started, progress)
-        {:reply, {:ok, run}, %{state | task: task, progress: progress, cancelling?: false}}
+        {:reply, {:ok, run.name}, %{state | task: task, progress: progress, cancelling?: false}}
 
       {:error, message} ->
         {:reply, {:error, message}, state}
     end
   end
 
+  # The task is gone once terminate_child returns, so the run is recorded as
+  # cancelled right away; its :DOWN message only broadcasts it.
   def handle_call(:cancel, _from, %{task: %Task{pid: pid}} = state) do
     Task.Supervisor.terminate_child(Phantom.Biometrics.TaskSupervisor, pid)
+    Runs.finish_run_by_name(state.progress.run, "cancelled")
     {:reply, :ok, %{state | cancelling?: true}}
   end
 
@@ -128,14 +123,14 @@ defmodule Phantom.Biometrics.Runner do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp apply_event({:subject_started, subject}, progress) do
-    {:progress, %{progress | subject: Map.put(subject, :shots, [])}}
+    {:progress, %{progress | subject: subject}}
   end
 
   defp apply_event(
-         {:shot, subject_id, record},
-         %{subject: %{id: subject_id} = subject} = progress
+         {:shot, subject_name, image},
+         %{subject: %{name: subject_name} = subject} = progress
        ) do
-    {:progress, %{progress | subject: %{subject | shots: subject.shots ++ [record]}}}
+    {:progress, %{progress | subject: %{subject | images: subject.images ++ [image]}}}
   end
 
   defp apply_event({:shot, _subject_id, _record}, progress), do: {:progress, progress}
@@ -144,7 +139,10 @@ defmodule Phantom.Biometrics.Runner do
     {:subject_done, %{progress | subject: subject, done: progress.done + 1}}
   end
 
+  # Finished runs are recorded by the harness and cancelled ones by cancel/0.
   defp finish(state, status, error) do
+    if status == :failed, do: Runs.finish_run_by_name(state.progress.run, "failed", error)
+
     broadcast(status, %{state.progress | status: status, error: error, subject: nil})
     {:noreply, %{state | task: nil, progress: nil, cancelling?: false}}
   end

@@ -48,8 +48,8 @@ mix biometrics.generate --shots faces,rolled,slaps,palms,card --captures 2      
 mix biometrics.generate --shots rolled,slaps --renderer procedural              # fingerprints only, no GPU
 ```
 
-When it finishes it prints the friction-ridge quality report (see [Verification](#verification)) and the path
-to a contact sheet (`index.html`).
+When it finishes it prints the friction-ridge quality report (see [Verification](#verification)) and where to
+open the run in the app. The run is recorded in the database like runs started from the app.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -105,10 +105,9 @@ Runs execute in `Phantom.Biometrics.Runner`, a single background worker, not in 
 - A run continues if you close the page.
 - Progress reaches every open page through PubSub.
 
-The output folder is the source of truth for listing runs (`Phantom.Biometrics.Runs`). Images and ground-truth
-JSON are served from it by `/biometrics-files/<run>/<subject>/<file>`, which only serves `.png` and `.json` files
-with safe names. The folder is set by `config :phantom, :biometrics_output_dir` (default
-`data/synthetic/biometrics`).
+Runs are stored in Postgres (`Phantom.Biometrics.Runs`, see [Storage](#storage)). The run's status is kept
+there too: a run interrupted by a restart is marked `cancelled` when the app starts, and can be resumed. Images
+are served by id from `/images/:id`, and a friction-ridge image's ground truth from `/images/:id/ground-truth`.
 
 ## How it works
 
@@ -256,9 +255,10 @@ How the images relate:
     whorls, and ulnar loops point towards the little finger.
 - **Captures.** `capture` 2 and 3 (`_c2`, `_c3`) are new impressions of the same masters, with a different
   placement, skin distortion, contact area, pressure and noise. They are mated pairs for ABIS tests.
-- **Ground truth.** Each image has a JSON file next to it. For fingers and slaps it holds the pattern class,
-  cores and deltas, and minutiae (x, y, angle, ending or bifurcation) in that image's pixel coordinates. For
-  palms it holds the triradii in view. `subject.json` keeps a summary without the minutiae lists.
+- **Ground truth.** Each friction-ridge image stores its ground truth (`images.ground_truth`). For fingers and
+  slaps it holds the pattern class, cores and deltas, and minutiae (x, y, angle, ending or bifurcation) in that
+  image's pixel coordinates. For palms it holds the triradii in view. `images.meta` keeps a summary without the
+  minutiae lists, for pages and reports.
 - **Marking.** Every PNG is 8-bit grey with 500 ppi DPI metadata and `Synthetic=true` text chunks. The card's
   header says "SYNTHETIC TEST DATA - NOT A REAL PERSON".
 
@@ -273,10 +273,10 @@ The service therefore checks every finger and slap it renders (`python_biometric
   0.15. **NFIQ 2** must be at least 35, per finger for slaps.
 - An image that fails is re-rendered with new appearance randomness (same ridges), up to 3 attempts. If none
   passes, the best attempt is kept and marked rejected.
-- The results go into the ground-truth JSON (`verification`: metrics, attempts, the missed and spurious points,
-  the detected minutiae) and a summary into `subject.json`.
+- The results go into the ground truth (`verification`: metrics, attempts, the missed and spurious points, the
+  detected minutiae) and a summary into `meta`.
 
-At the end of a run the harness writes `report.json` (`Phantom.Biometrics.Report`):
+At the end of a run the harness stores its report on the run (`runs.report`, see `Phantom.Biometrics.Report`):
 
 - how many images were verified, accepted, accepted after a retry, or rejected
 - NFIQ 2, recall and spurious-rate distributions per impression type
@@ -302,30 +302,38 @@ Every value is derived from the run seed:
 | Finger and palm masters, captures | Subject seed, finger or palm code, capture number |
 | Rendering (procedural noise, diffusion seed) | Subject seed, shot code, capture number, attempt number |
 
-Rerunning with the same `--run` and `--seed` skips images that already exist. It regenerates missing ones with
-the same seeds, reading the anchor back from disk as the reference. If a shot fails, the error is recorded and
+Rerunning with the same `--run` and `--seed` keeps images that are already stored (their row says `ok` and the
+file exists). It renders missing ones with the same seeds, reading the anchor back from storage as the
+reference. If a shot fails, the error is recorded and
 the run continues. If the anchor fails, that subject's other face shots are marked `skipped`.
 
-## Output
+## Storage
+
+Runs live in three Postgres tables, written as a run renders so pages can follow it:
+
+| Table | One row per | Holds |
+|---|---|---|
+| `runs` | run | name, seed, status (`running`, `finished`, `cancelled`, `failed`), shots, captures, renderer, steps, prompt version, subject count, quality report, error, start and finish times |
+| `subjects` | synthetic person | run, position, name (`subject_001`), seed, description, sampled attributes, when every shot was attempted |
+| `images` | shot of a subject | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary (`meta`) and full ground truth, duration, error |
+
+Image files are kept by `Phantom.Biometrics.Storage`. The default backend, `Storage.Local`, writes them to
+`config :phantom, :biometrics_output_dir` (default `data/synthetic/biometrics`):
 
 ```
 data/synthetic/biometrics/<run>/
-  run.json                 seed, shots, captures, renderer, steps, prompt version, subject count
-  report.json              friction-ridge quality report (verification, bozorth3 mated vs non-mated)
-  index.html               contact sheet: one row per subject
   subject_001/
-    subject.json           attributes, description, and per shot: pos/code, size, seed, capture,
-                           prompt or ground-truth summary, status, duration_ms, error
     mugshot_frontal.png
-    rolled_01.png          rolled_01.json    (ground truth: pattern, singular points, minutiae, verification)
-    slap_13.png            slap_13.json
-    palm_21.png            palm_21.json
-    tenprint_card.png      tenprint_card.json
-    rolled_01_c2.png       rolled_01_c2.json (second capture)
+    rolled_01.png
+    rolled_01_c2.png       (second capture)
+    slap_13.png
+    palm_21.png
+    tenprint_card.png
     ...
 ```
 
-The contact sheet is rewritten after each subject, so you can watch a run fill in.
+The database only stores each file's key (`<run>/subject_001/rolled_01.png`), so another backend (S3, say) can
+implement the `Storage` behaviour and be set with `config :phantom, :biometrics_storage`.
 
 ## Qwen service changes
 
@@ -371,7 +379,7 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
   - **Harness:**
     - face anchor conditioning
     - friction-ridge shots all come from the subject seed, and ground-truth JSON is written
-    - the renderer is passed through, and verified shots produce `report.json`
+    - the renderer is passed through, and verified shots produce a report on the run
     - resume, and failure handling
   - **Runner, runs reader, request validation, the ridge client and the quality report.**
 - `test/phantom_web/`
@@ -430,11 +438,13 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
 | `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form, active run, run list |
 | `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run`: subject grid, live progress, detail view, resume/cancel |
 | `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, progress bar |
-| `lib/phantom_web/controllers/biometrics_file_controller.ex` | Serves run images from the output folder |
+| `lib/phantom_web/controllers/image_controller.ex` | Serves image files and ground truth by image id |
 | `lib/phantom/biometrics/runner.ex` | Background runner: one run at a time, PubSub progress, cancel |
-| `lib/phantom/biometrics/runs.ex` | Reads runs and subjects back from the output folder |
+| `lib/phantom/biometrics/runs.ex` | Runs, subjects and images in the database: reading and recording them |
+| `lib/phantom/biometrics/{run,subject,image}.ex` | Ecto schemas for the `runs`, `subjects` and `images` tables |
+| `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
 | `lib/phantom/biometrics/run_request.ex` | Validates the web form |
-| `lib/phantom/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, JSON, contact sheet |
+| `lib/phantom/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, storing results |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
 | `lib/phantom/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service (`render`, `match`) |
 | `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |

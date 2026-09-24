@@ -10,8 +10,8 @@ defmodule Phantom.Biometrics.ReportTest do
     assert Report.stats([nil]) == %{"count" => 0}
   end
 
-  test "no report without verified shots" do
-    subject = %{id: "subject_001", shots: [%{status: "ok", meta: %{"pattern" => "whorl"}}]}
-    assert Report.build("unused", [subject]) == nil
+  test "no report without verified images" do
+    subject = %{name: "subject_001", images: [%{status: "ok", meta: %{"pattern" => "whorl"}}]}
+    assert Report.build([subject]) == nil
   end
 end
