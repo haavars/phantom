@@ -13,7 +13,7 @@
 # (about 320 MB, from the authors' Google Drive). Needs an NVIDIA GPU.
 #
 # After this succeeds, `mix phx.server` (from the project root) finds and uses
-# this venv automatically (see Bilder.PythonService).
+# this venv automatically (see Phantom.PythonService).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 

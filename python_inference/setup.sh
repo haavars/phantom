@@ -6,7 +6,7 @@
 # Usage: ./setup.sh
 #
 # After this succeeds, `mix phx.server` (from the project root) will find and
-# use this venv automatically (see Bilder.PythonService) — no separate step to
+# use this venv automatically (see Phantom.PythonService) — no separate step to
 # start the inference service.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"

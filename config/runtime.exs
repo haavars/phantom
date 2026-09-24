@@ -12,48 +12,48 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/bilder start
+#     PHX_SERVER=true bin/phantom start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :bilder, BilderWeb.Endpoint, server: true
+  config :phantom, PhantomWeb.Endpoint, server: true
 end
 
-config :bilder, BilderWeb.Endpoint,
+config :phantom, PhantomWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 # Base URL of the local Qwen-Image-2.1 inference service (see python_inference/).
 if qwen_service_url = System.get_env("QWEN_SERVICE_URL") do
-  config :bilder, :qwen_service_url, qwen_service_url
+  config :phantom, :qwen_service_url, qwen_service_url
 end
 
 # Set QWEN_AUTOSTART=false to manage python_inference/server.py yourself
 # (e.g. it runs on another machine) instead of having this app supervise it.
 if System.get_env("QWEN_AUTOSTART") in ~w(false 0) do
-  config :bilder, :start_qwen_service, false
+  config :phantom, :start_qwen_service, false
 end
 
 if qwen_service_dir = System.get_env("QWEN_SERVICE_DIR") do
-  config :bilder, :qwen_service_dir, qwen_service_dir
+  config :phantom, :qwen_service_dir, qwen_service_dir
 end
 
 # The synthetic friction-ridge service (see python_biometrics/), same options.
 if biometrics_service_url = System.get_env("BIOMETRICS_SERVICE_URL") do
-  config :bilder, :biometrics_service_url, biometrics_service_url
+  config :phantom, :biometrics_service_url, biometrics_service_url
 end
 
 if System.get_env("BIOMETRICS_AUTOSTART") in ~w(false 0) do
-  config :bilder, :start_biometrics_service, false
+  config :phantom, :start_biometrics_service, false
 end
 
 if biometrics_service_dir = System.get_env("BIOMETRICS_SERVICE_DIR") do
-  config :bilder, :biometrics_service_dir, biometrics_service_dir
+  config :phantom, :biometrics_service_dir, biometrics_service_dir
 end
 
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
-  config :bilder, BilderWeb.Endpoint,
+  config :phantom, PhantomWeb.Endpoint,
     live_reload: [
       web_console_logger: true,
       patterns: [
@@ -62,8 +62,8 @@ if config_env() == :dev do
         # Gettext translations
         ~r"priv/gettext/.*\.po$"E,
         # Router, Controllers, LiveViews and LiveComponents
-        ~r"lib/bilder_web/router\.ex$"E,
-        ~r"lib/bilder_web/(controllers|live|components)/.*\.(ex|heex)$"E
+        ~r"lib/phantom_web/router\.ex$"E,
+        ~r"lib/phantom_web/(controllers|live|components)/.*\.(ex|heex)$"E
       ]
     ]
 end
@@ -78,7 +78,7 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :bilder, Bilder.Repo,
+  config :phantom, Phantom.Repo,
     # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
@@ -100,9 +100,9 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
-  config :bilder, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :phantom, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :bilder, BilderWeb.Endpoint,
+  config :phantom, PhantomWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -118,7 +118,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :bilder, BilderWeb.Endpoint,
+  #     config :phantom, PhantomWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -140,7 +140,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :bilder, BilderWeb.Endpoint,
+  #     config :phantom, PhantomWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -150,7 +150,7 @@ if config_env() == :prod do
   # In production you need to configure a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :bilder, Bilder.Mailer,
+  #     config :phantom, Phantom.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")

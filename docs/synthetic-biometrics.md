@@ -1,6 +1,6 @@
 # Synthetic biometrics
 
-Bilder generates **synthetic subjects**, fictional people, for ABIS testing. Each subject can have:
+Phantom generates **synthetic subjects**, fictional people, for ABIS testing. Each subject can have:
 
 - **Face images:** mugshots (frontal, profiles, ¾ views), an ICAO passport portrait and mated probe images,
   generated with the local Qwen-Image-2.1 service.
@@ -63,7 +63,7 @@ to a contact sheet (`index.html`).
 | `--run NAME` | `<timestamp>-seed<S>` | Run folder name; reusing it resumes that run |
 | `--force` | off | Regenerate images that already exist |
 
-From IEx: `Bilder.Biometrics.Harness.run(subjects: 2, seed: 42, shots: ["rolled", "probe_glasses"])`.
+From IEx: `Phantom.Biometrics.Harness.run(subjects: 2, seed: 42, shots: ["rolled", "probe_glasses"])`.
 
 The task loads only config and `Req`, not the whole application. Starting the app would launch second copies of
 the Python services, competing with the ones `phx.server` already runs. The task only checks the services the
@@ -98,23 +98,23 @@ With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localho
     shots, and Esc closes it.
   - **Resume** appears for runs with missing subjects or failed shots. It continues with the same seeds.
 
-Runs execute in `Bilder.Biometrics.Runner`, a single background worker, not in the page's process:
+Runs execute in `Phantom.Biometrics.Runner`, a single background worker, not in the page's process:
 
 - Only one run is active at a time. The GPU renders one image at a time, and the ridge service uses every CPU
   core.
 - A run continues if you close the page.
 - Progress reaches every open page through PubSub.
 
-The output folder is the source of truth for listing runs (`Bilder.Biometrics.Runs`). Images and ground-truth
+The output folder is the source of truth for listing runs (`Phantom.Biometrics.Runs`). Images and ground-truth
 JSON are served from it by `/biometrics-files/<run>/<subject>/<file>`, which only serves `.png` and `.json` files
-with safe names. The folder is set by `config :bilder, :biometrics_output_dir` (default
+with safe names. The folder is set by `config :phantom, :biometrics_output_dir` (default
 `data/synthetic/biometrics`).
 
 ## How it works
 
 ```
-mix biometrics.generate  /  /biometrics (via Bilder.Biometrics.Runner)
-  └─ Bilder.Biometrics.Harness.run/1
+mix biometrics.generate  /  /biometrics (via Phantom.Biometrics.Runner)
+  └─ Phantom.Biometrics.Harness.run/1
        ├─ Shots.expand/2              which shots, in which order
        ├─ FaceAttributes.sample/2     who the person is
        ├─ FacePrompts.prompt/2        what to ask the model for (face shots)
@@ -123,7 +123,7 @@ mix biometrics.generate  /  /biometrics (via Bilder.Biometrics.Runner)
        └─ Report.write/2              run quality report; FrictionRidge.match/2 → bozorth3
 ```
 
-`Bilder.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
+`Phantom.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
 `rolled` becomes `rolled_01` … `rolled_10`, and `--captures 2` adds `rolled_01_c2` … after the first capture.
 The face anchor is only added when there are face shots.
 
@@ -174,7 +174,7 @@ The **probes** are mated search images for ABIS testing: the same person with re
 
 ### Person attributes
 
-`Bilder.Biometrics.FaceAttributes.sample(seed, opts)` returns a struct with these fields:
+`Phantom.Biometrics.FaceAttributes.sample(seed, opts)` returns a struct with these fields:
 
 - sex, age, ancestry
 - skin tone, eye colour, hair colour and style, facial hair
@@ -196,7 +196,7 @@ How they're chosen:
 
 ### Prompt design
 
-`Bilder.Biometrics.FacePrompts` has two prompt styles.
+`Phantom.Biometrics.FacePrompts` has two prompt styles.
 
 - **Anchor and profiles** describe the photograph: a police booking photo, a plain mid-grey background, even
   flash lighting, a neutral expression, and "no text, no placard, no height chart".
@@ -276,7 +276,7 @@ The service therefore checks every finger and slap it renders (`python_biometric
 - The results go into the ground-truth JSON (`verification`: metrics, attempts, the missed and spurious points,
   the detected minutiae) and a summary into `subject.json`.
 
-At the end of a run the harness writes `report.json` (`Bilder.Biometrics.Report`):
+At the end of a run the harness writes `report.json` (`Phantom.Biometrics.Report`):
 
 - how many images were verified, accepted, accepted after a retry, or rejected
 - NFIQ 2, recall and spurious-rate distributions per impression type
@@ -329,7 +329,7 @@ The contact sheet is rewritten after each subject, so you can watch a run fill i
 
 ## Qwen service changes
 
-- **`render/2`:** `Bilder.ImageGeneration` was split. `render/2` returns the PNG and seed without saving
+- **`render/2`:** `Phantom.ImageGeneration` was split. `render/2` returns the PNG and seed without saving
   anything, and accepts an explicit `:width`/`:height`. `generate/2`, used by the main page, still saves to
   `priv/static/uploads`.
 - **VAE tiling in `python_inference/server.py`:**
@@ -365,7 +365,7 @@ a faster face generator; see the plan document.
 
 The Elixir tests stub both services with `Req.Test` and write to a temporary folder:
 
-- `test/bilder/biometrics/`
+- `test/phantom/biometrics/`
   - **Attributes and prompts:** seeded people; every face shot has a valid spec and prompt.
   - **Shots:** group expansion, ordering, captures, anchor only with face shots, unknown names.
   - **Harness:**
@@ -374,7 +374,7 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
     - the renderer is passed through, and verified shots produce `report.json`
     - resume, and failure handling
   - **Runner, runs reader, request validation, the ridge client and the quality report.**
-- `test/bilder_web/`
+- `test/phantom_web/`
   - **Both pages:** form, services, run list, sections, tiles, detail views with prompt or ground truth, resume
     and cancel.
   - **The file controller.**
@@ -427,21 +427,21 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
 | File | What it does |
 |---|---|
 | `lib/mix/tasks/biometrics.generate.ex` | CLI entry point |
-| `lib/bilder_web/live/biometrics_live.ex` | `/biometrics`: new-run form, active run, run list |
-| `lib/bilder_web/live/biometrics_run_live.ex` | `/biometrics/:run`: subject grid, live progress, detail view, resume/cancel |
-| `lib/bilder_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, progress bar |
-| `lib/bilder_web/controllers/biometrics_file_controller.ex` | Serves run images from the output folder |
-| `lib/bilder/biometrics/runner.ex` | Background runner: one run at a time, PubSub progress, cancel |
-| `lib/bilder/biometrics/runs.ex` | Reads runs and subjects back from the output folder |
-| `lib/bilder/biometrics/run_request.ex` | Validates the web form |
-| `lib/bilder/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, JSON, contact sheet |
-| `lib/bilder/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
-| `lib/bilder/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service (`render`, `match`) |
-| `lib/bilder/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
-| `lib/bilder/python_service.ex` | Supervises both Python services (`Bilder.QwenService`, `Bilder.BiometricsService`) |
-| `lib/bilder/biometrics/face_attributes.ex` | Seeded person sampling and `describe/1` |
-| `lib/bilder/biometrics/face_prompts.ex` | Shot specs, prompt templates, prompt version |
-| `lib/bilder/image_generation.ex` | Qwen HTTP client (`render/2`, `generate/2`, `health/0`) |
+| `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form, active run, run list |
+| `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run`: subject grid, live progress, detail view, resume/cancel |
+| `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, progress bar |
+| `lib/phantom_web/controllers/biometrics_file_controller.ex` | Serves run images from the output folder |
+| `lib/phantom/biometrics/runner.ex` | Background runner: one run at a time, PubSub progress, cancel |
+| `lib/phantom/biometrics/runs.ex` | Reads runs and subjects back from the output folder |
+| `lib/phantom/biometrics/run_request.ex` | Validates the web form |
+| `lib/phantom/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, JSON, contact sheet |
+| `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
+| `lib/phantom/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service (`render`, `match`) |
+| `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
+| `lib/phantom/python_service.ex` | Supervises both Python services (`Phantom.QwenService`, `Phantom.BiometricsService`) |
+| `lib/phantom/biometrics/face_attributes.ex` | Seeded person sampling and `describe/1` |
+| `lib/phantom/biometrics/face_prompts.ex` | Shot specs, prompt templates, prompt version |
+| `lib/phantom/image_generation.ex` | Qwen HTTP client (`render/2`, `generate/2`, `health/0`) |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
 | `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |

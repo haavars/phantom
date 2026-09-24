@@ -1,9 +1,9 @@
-defmodule Bilder.MixProject do
+defmodule Phantom.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :bilder,
+      app: :phantom,
       version: "0.1.0",
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,7 +20,7 @@ defmodule Bilder.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Bilder.Application, []},
+      mod: {Phantom.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -89,10 +89,10 @@ defmodule Bilder.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind bilder", "esbuild bilder"],
+      "assets.build": ["compile", "tailwind phantom", "esbuild phantom"],
       "assets.deploy": [
-        "tailwind bilder --minify",
-        "esbuild bilder --minify",
+        "tailwind phantom --minify",
+        "esbuild phantom --minify",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]

@@ -5,23 +5,23 @@ import Config
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
-config :bilder, Bilder.Repo,
+config :phantom, Phantom.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "bilder_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "phantom_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :bilder, BilderWeb.Endpoint,
+config :phantom, PhantomWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "LNB3YyH4k8NJAaHRrmgLrnSMmhK2my95KC6YrhNGfTH/Syzxbv14AEGgayZsYg2s",
   server: false
 
 # In test we don't send emails
-config :bilder, Bilder.Mailer, adapter: Swoosh.Adapters.Test
+config :phantom, Phantom.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
@@ -41,16 +41,16 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 # Stub the Qwen-Image-2.1 HTTP calls in tests instead of hitting a real service.
-# See Bilder.ImageGeneration and Req.Test.
-config :bilder, :qwen_image_req_options, plug: {Req.Test, Bilder.ImageGeneration}
+# See Phantom.ImageGeneration and Req.Test.
+config :phantom, :qwen_image_req_options, plug: {Req.Test, Phantom.ImageGeneration}
 
 # Don't spawn the real python_inference process during tests.
-config :bilder, :start_qwen_service, false
+config :phantom, :start_qwen_service, false
 
 # Same for the synthetic friction-ridge service.
-config :bilder, :biometrics_req_options, plug: {Req.Test, Bilder.Biometrics.FrictionRidge}
-config :bilder, :start_biometrics_service, false
+config :phantom, :biometrics_req_options, plug: {Req.Test, Phantom.Biometrics.FrictionRidge}
+config :phantom, :start_biometrics_service, false
 
 # Tests that read face runs point this at a tmp_dir; this default keeps anything
 # that slips through out of the real data folder.
-config :bilder, :biometrics_output_dir, Path.expand("../tmp/test/biometrics", __DIR__)
+config :phantom, :biometrics_output_dir, Path.expand("../tmp/test/biometrics", __DIR__)

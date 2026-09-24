@@ -3,7 +3,7 @@
 Loads the model once at startup and serves POST /generate (multipart/form-data:
 `prompt`, `width`, `height`, `steps`, `seed`, and up to 10 `images` files for
 image-conditioned generation), returning a PNG. The Phoenix app
-(Bilder.ImageGeneration) calls this over HTTP on localhost.
+(Phantom.ImageGeneration) calls this over HTTP on localhost.
 
 Run with:
 
@@ -170,13 +170,13 @@ async def generate(
 def exit_with_parent():
     """Exit when the Phoenix app that started us goes away.
 
-    Bilder.PythonService starts this server with BILDER_EXIT_WITH_PARENT=1 and a
+    Phantom.PythonService starts this server with PHANTOM_EXIT_WITH_PARENT=1 and a
     pipe on stdin; the pipe closes when the BEAM exits, however abruptly (e.g.
     Ctrl+C twice skips the app's shutdown code). Without this, the server would
     keep running and hold the port, and the next `mix phx.server` couldn't
     start its own copy.
     """
-    if os.environ.get("BILDER_EXIT_WITH_PARENT") != "1":
+    if os.environ.get("PHANTOM_EXIT_WITH_PARENT") != "1":
         return
 
     def watch():

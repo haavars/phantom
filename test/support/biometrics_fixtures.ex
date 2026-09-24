@@ -1,4 +1,4 @@
-defmodule Bilder.BiometricsFixtures do
+defmodule Phantom.BiometricsFixtures do
   @moduledoc "Helpers for tests that need synthetic-biometrics runs on disk."
 
   @png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "fake-png"
@@ -13,7 +13,7 @@ defmodule Bilder.BiometricsFixtures do
   def stub_qwen(opts \\ []) do
     generate = Keyword.get(opts, :generate, &send_png/1)
 
-    Req.Test.stub(Bilder.ImageGeneration, fn conn ->
+    Req.Test.stub(Phantom.ImageGeneration, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           conn
@@ -46,7 +46,7 @@ defmodule Bilder.BiometricsFixtures do
   def stub_ridge(opts \\ []) do
     notify = Keyword.get(opts, :notify)
 
-    Req.Test.stub(Bilder.Biometrics.FrictionRidge, fn conn ->
+    Req.Test.stub(Phantom.Biometrics.FrictionRidge, fn conn ->
       case {conn.method, conn.request_path} do
         {"GET", "/health"} ->
           Req.Test.json(conn, %{status: "ready"})
@@ -128,7 +128,7 @@ defmodule Bilder.BiometricsFixtures do
         opts
       )
 
-    {:ok, _result} = Bilder.Biometrics.Harness.run(opts)
+    {:ok, _result} = Phantom.Biometrics.Harness.run(opts)
     Keyword.fetch!(opts, :run)
   end
 
@@ -137,11 +137,11 @@ defmodule Bilder.BiometricsFixtures do
   global, so only use this from `async: false` tests.
   """
   def use_output_dir(root) do
-    previous = Application.get_env(:bilder, :biometrics_output_dir)
-    Application.put_env(:bilder, :biometrics_output_dir, root)
+    previous = Application.get_env(:phantom, :biometrics_output_dir)
+    Application.put_env(:phantom, :biometrics_output_dir, root)
 
     ExUnit.Callbacks.on_exit(fn ->
-      Application.put_env(:bilder, :biometrics_output_dir, previous)
+      Application.put_env(:phantom, :biometrics_output_dir, previous)
     end)
   end
 end

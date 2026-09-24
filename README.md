@@ -1,4 +1,4 @@
-# Bilder
+# Phantom
 
 A Phoenix LiveView app for generating images locally with
 [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1): type a prompt (optionally with reference
@@ -23,7 +23,7 @@ your own GPU via a small local Python service that this app starts and manages f
    mix phx.server
    ```
 
-   `mix phx.server` also starts `python_inference/server.py` for you (see `Bilder.PythonService`) and stops it
+   `mix phx.server` also starts `python_inference/server.py` for you (see `Phantom.PythonService`) and stops it
    on shutdown. Visit [`localhost:4000`](http://localhost:4000) — the page shows "starting up" while the
    model loads (first run downloads it, which takes a while), then enter a prompt and hit Generate.
 
@@ -36,7 +36,7 @@ QWEN_AUTOSTART=false QWEN_SERVICE_URL=http://your-host:8000 mix phx.server
 
 ## Synthetic biometrics
 
-Bilder also generates synthetic subjects, fictional people, for ABIS testing:
+Phantom also generates synthetic subjects, fictional people, for ABIS testing:
 
 - **Faces:** mugshots, ICAO portraits and mated probe images, from Qwen-Image-2.1.
 - **Friction ridges:** rolled fingerprints, slaps, full and writer's palms, and an FD-249 style tenprint card,

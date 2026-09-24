@@ -1,4 +1,4 @@
-defmodule BilderWeb.ConnCase do
+defmodule PhantomWeb.ConnCase do
   @moduledoc """
   This module defines the test case to be used by
   tests that require setting up a connection.
@@ -11,7 +11,7 @@ defmodule BilderWeb.ConnCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use BilderWeb.ConnCase, async: true`, although
+  by setting `use PhantomWeb.ConnCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,19 +20,19 @@ defmodule BilderWeb.ConnCase do
   using do
     quote do
       # The default endpoint for testing
-      @endpoint BilderWeb.Endpoint
+      @endpoint PhantomWeb.Endpoint
 
-      use BilderWeb, :verified_routes
+      use PhantomWeb, :verified_routes
 
       # Import conveniences for testing with connections
       import Plug.Conn
       import Phoenix.ConnTest
-      import BilderWeb.ConnCase
+      import PhantomWeb.ConnCase
     end
   end
 
   setup tags do
-    Bilder.DataCase.setup_sandbox(tags)
+    Phantom.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

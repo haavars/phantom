@@ -25,13 +25,13 @@ compression, latent prints, morphs, and quality gates beyond basic checks.
 
 ## 2. What exists today
 
-- `BilderWeb.GenerateLive` at `/`: a general text-to-image UI.
-- `Bilder.ImageGeneration`: calls the local Qwen-Image-2.1 FastAPI service (`python_inference/server.py`) over
+- `PhantomWeb.GenerateLive` at `/`: a general text-to-image UI.
+- `Phantom.ImageGeneration`: calls the local Qwen-Image-2.1 FastAPI service (`python_inference/server.py`) over
   HTTP with `Req`. It supports up to 10 reference images for image-conditioned generation. Output goes straight
   to `priv/static/uploads`.
-- `Bilder.QwenService`: runs the Python process under supervision through a `Port`.
-- Postgres/`Bilder.Repo` is configured, but there are no schemas or migrations yet.
-- Tests stub HTTP with `Req.Test` (`config :bilder, :qwen_image_req_options, plug: {Req.Test, ...}`).
+- `Phantom.QwenService`: runs the Python process under supervision through a `Port`.
+- Postgres/`Phantom.Repo` is configured, but there are no schemas or migrations yet.
+- Tests stub HTTP with `Req.Test` (`config :phantom, :qwen_image_req_options, plug: {Req.Test, ...}`).
 
 We reuse all of this. Faces go through the existing Qwen service. Fingerprints and palms need a different kind
 of generator (section 5).
@@ -42,15 +42,15 @@ of generator (section 5).
 BiometricsLive (/biometrics)
    │  form: what to generate, how many subjects, seed
    ▼
-Bilder.Biometrics  (context: create_batch/1, list_subjects/1, get_subject!/1)
+Phantom.Biometrics  (context: create_batch/1, list_subjects/1, get_subject!/1)
    │  writes a Batch + Subject rows, enqueues work
    ▼
-Bilder.Biometrics.Runner  (Task.Supervisor + a small per-backend concurrency limit)
+Phantom.Biometrics.Runner  (Task.Supervisor + a small per-backend concurrency limit)
    │  for each subject → each requested artifact
    ├── FaceGenerator.Qwen ──────► python_inference (Qwen-Image-2.1, GPU)   :8000
    ├── FrictionRidgeGenerator.Procedural ─► python_biometrics (CPU)        :8001
    ▼
-Bilder.Storage (behaviour)  ── Local | S3
+Phantom.Storage (behaviour)  ── Local | S3
    │
    ├── Postgres: synthetic_images row (key, sha256, dims, ppi, seed, generator…)
    └── PubSub "biometrics:batch:<id>" → LiveView streams progress
@@ -60,22 +60,22 @@ Bilder.Storage (behaviour)  ── Local | S3
 
 | Module | Responsibility |
 |---|---|
-| `Bilder.Storage` | Behaviour: `put(key, binary, opts)`, `get(key)`, `url(key, opts)`, `delete(key)`. Selects the adapter from config. |
-| `Bilder.Storage.Local` | Writes under a configurable root, `mkdir_p`, then an atomic `File.rename` from a temp file. |
-| `Bilder.Storage.S3` | Plain `Req` with the built-in `aws_sigv4:` option (Req 0.7 has `put_aws_sigv4`). `Req.Utils.aws_sigv4_url/1` produces presigned GET URLs for display. No `ex_aws` dependency. Works with AWS, MinIO and other S3-compatible stores through `endpoint_url`. |
-| `Bilder.Biometrics` | Context: batches, subjects, images, and the queries the LiveView needs. |
-| `Bilder.Biometrics.Batch` / `Subject` / `Image` | Ecto schemas (section 6). |
-| `Bilder.Biometrics.Positions` | Constants for the codes and nominal sizes in section 4: FGP 1–15, PLP 21–28 and face POS. The single source of truth. |
-| `Bilder.Biometrics.FaceAttributes` | Samples demographics and appearance per subject from a seeded RNG (`:rand.seed(:exsss, seed)`). Builds the prompt. |
-| `Bilder.Biometrics.FaceGenerator` | Behaviour, plus the `Qwen` implementation that reuses the HTTP client in `Bilder.ImageGeneration`. |
-| `Bilder.Biometrics.FrictionRidgeGenerator` | Behaviour, plus the `Procedural` implementation that calls `python_biometrics`. |
-| `Bilder.Biometrics.Runner` | Runs a batch: fans out per subject, calls generators, stores results, broadcasts progress. |
-| `Bilder.Biometrics.Manifest` | Builds `manifest.json` per subject and per batch. |
-| `Bilder.PythonService` | Generalises `Bilder.QwenService` (dir, script, port, name) so both Python services use one supervised-port implementation. `QwenService` becomes a thin config of it. |
-| `BilderWeb.BiometricsLive` | The new LiveView, route `live "/biometrics", BiometricsLive, :index`. Later: `live "/biometrics/subjects/:id", BiometricsLive.Show, :show`. |
-| `BilderWeb.StorageController` | Only for local storage outside `priv/static`: `GET /files/*key` streams from `Storage.Local` using `send_file`, with path-traversal checks. For S3 the LiveView uses presigned URLs instead. |
+| `Phantom.Storage` | Behaviour: `put(key, binary, opts)`, `get(key)`, `url(key, opts)`, `delete(key)`. Selects the adapter from config. |
+| `Phantom.Storage.Local` | Writes under a configurable root, `mkdir_p`, then an atomic `File.rename` from a temp file. |
+| `Phantom.Storage.S3` | Plain `Req` with the built-in `aws_sigv4:` option (Req 0.7 has `put_aws_sigv4`). `Req.Utils.aws_sigv4_url/1` produces presigned GET URLs for display. No `ex_aws` dependency. Works with AWS, MinIO and other S3-compatible stores through `endpoint_url`. |
+| `Phantom.Biometrics` | Context: batches, subjects, images, and the queries the LiveView needs. |
+| `Phantom.Biometrics.Batch` / `Subject` / `Image` | Ecto schemas (section 6). |
+| `Phantom.Biometrics.Positions` | Constants for the codes and nominal sizes in section 4: FGP 1–15, PLP 21–28 and face POS. The single source of truth. |
+| `Phantom.Biometrics.FaceAttributes` | Samples demographics and appearance per subject from a seeded RNG (`:rand.seed(:exsss, seed)`). Builds the prompt. |
+| `Phantom.Biometrics.FaceGenerator` | Behaviour, plus the `Qwen` implementation that reuses the HTTP client in `Phantom.ImageGeneration`. |
+| `Phantom.Biometrics.FrictionRidgeGenerator` | Behaviour, plus the `Procedural` implementation that calls `python_biometrics`. |
+| `Phantom.Biometrics.Runner` | Runs a batch: fans out per subject, calls generators, stores results, broadcasts progress. |
+| `Phantom.Biometrics.Manifest` | Builds `manifest.json` per subject and per batch. |
+| `Phantom.PythonService` | Generalises `Phantom.QwenService` (dir, script, port, name) so both Python services use one supervised-port implementation. `QwenService` becomes a thin config of it. |
+| `PhantomWeb.BiometricsLive` | The new LiveView, route `live "/biometrics", BiometricsLive, :index`. Later: `live "/biometrics/subjects/:id", BiometricsLive.Show, :show`. |
+| `PhantomWeb.StorageController` | Only for local storage outside `priv/static`: `GET /files/*key` streams from `Storage.Local` using `send_file`, with path-traversal checks. For S3 the LiveView uses presigned URLs instead. |
 
-Small refactor of `Bilder.ImageGeneration`: split "call the model" (returns the PNG binary and seed) from "save to
+Small refactor of `Phantom.ImageGeneration`: split "call the model" (returns the PNG binary and seed) from "save to
 `priv/static/uploads`", so the biometrics pipeline can call the model without writing into the public uploads
 folder. `GenerateLive` keeps its current behaviour.
 
@@ -110,7 +110,7 @@ optional, rendered in Python, and stored as `card.png`.
 ### 5.1 Faces: Qwen-Image-2.1 (already running)
 
 1. `FaceAttributes.sample(seed)` picks sex, age band, skin tone, hair (colour, length, style), facial hair,
-   glasses (off by default for ICAO), and build. Distributions are configurable in `config :bilder, :biometrics`.
+   glasses (off by default for ICAO), and build. Distributions are configurable in `config :phantom, :biometrics`.
 2. **Frontal:** text-to-image with a fixed template, for example: *"Passport photograph, ICAO compliant, head and
    shoulders, <attributes>, neutral expression, mouth closed, looking straight at camera, even studio lighting,
    plain light grey background, sharp focus, photorealistic"*. Mugshot uses a variant template.
@@ -238,14 +238,14 @@ The files stay identifiable as synthetic even when copied out of the system.
 `config/config.exs` (defaults) and `config/runtime.exs` (env overrides), following the existing `QWEN_*` pattern:
 
 ```elixir
-config :bilder, :storage,
-  adapter: Bilder.Storage.Local,           # or Bilder.Storage.S3
+config :phantom, :storage,
+  adapter: Phantom.Storage.Local,           # or Phantom.Storage.S3
   local_root: Path.expand("../data/synthetic", __DIR__),   # outside priv/static, gitignored
   prefix: "synthetic"
 
 # runtime.exs, when STORAGE_BACKEND=s3
-config :bilder, :storage,
-  adapter: Bilder.Storage.S3,
+config :phantom, :storage,
+  adapter: Phantom.Storage.S3,
   bucket: System.fetch_env!("S3_BUCKET"),
   region: System.get_env("AWS_REGION", "eu-north-1"),
   endpoint_url: System.get_env("S3_ENDPOINT_URL"),          # MinIO etc.; nil = AWS
@@ -253,10 +253,10 @@ config :bilder, :storage,
   secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
   presign_ttl: 3600
 
-config :bilder, :biometrics_service_url, "http://localhost:8001"
-config :bilder, :start_biometrics_service, true                # BIOMETRICS_AUTOSTART=false
-config :bilder, :biometrics_req_options, []                    # Req.Test plug in test.exs
-config :bilder, :biometrics,
+config :phantom, :biometrics_service_url, "http://localhost:8001"
+config :phantom, :start_biometrics_service, true                # BIOMETRICS_AUTOSTART=false
+config :phantom, :biometrics_req_options, []                    # Req.Test plug in test.exs
+config :phantom, :biometrics,
   face_concurrency: 1,          # a single GPU, serialize Qwen calls
   ridge_concurrency: System.schedulers_online(),
   max_subjects_per_batch: 100
@@ -267,23 +267,23 @@ It is deliberately **not** a user-selectable field, so nobody can point output a
 
 ## 8. Job execution
 
-- `Bilder.Biometrics.create_batch(params)` validates the request with an embedded-schema changeset, inserts the
+- `Phantom.Biometrics.create_batch(params)` validates the request with an embedded-schema changeset, inserts the
   batch and subjects (subject seeds derived from the batch seed), and starts the `Runner` under
-  `Bilder.Biometrics.TaskSupervisor`.
+  `Phantom.Biometrics.TaskSupervisor`.
 - The Runner builds a work list of `{subject, artifact}` items and runs it with `Task.async_stream(...,
   max_concurrency: n, timeout: :infinity)`. Face work and ridge work run in separate streams with their own limits,
   so fingerprints aren't stuck behind the slow GPU queue.
 - Profiles depend on the frontal image, so within a subject the face work runs in order: frontal, then the other
   poses.
 - After each image: `Storage.put`, insert the `synthetic_images` row, then
-  `Phoenix.PubSub.broadcast(Bilder.PubSub, "biometrics:batch:#{id}", {:image_ready, image})`.
+  `Phoenix.PubSub.broadcast(Phantom.PubSub, "biometrics:batch:#{id}", {:image_ready, image})`.
 - A failure on one artifact marks that subject `failed` with the error and doesn't abort the batch.
 - On app restart, batches left in `running` are marked `interrupted` at boot, and the UI offers **Resume**. Resume
   is safe because generation is deterministic and the unique index skips finished images.
 - `Oban` would give persistence and retries without extra code. It's worth adopting if batches grow large, but it's
   a new dependency, so it isn't in v1.
 
-## 9. LiveView: `BilderWeb.BiometricsLive` (`/biometrics`)
+## 9. LiveView: `PhantomWeb.BiometricsLive` (`/biometrics`)
 
 Add a small nav in `Layouts.app` with links for "Images" (`/`) and "Biometrics" (`/biometrics`).
 
@@ -308,18 +308,18 @@ Layout (same visual language as `GenerateLive`):
    a controller), open `manifest.json`, regenerate one image.
 6. **Recent batches** list (`id="batches"`), to reopen earlier results.
 
-Image `src` comes from `Bilder.Storage.url(key)`: `/files/...` for local storage, a presigned URL for S3.
+Image `src` comes from `Phantom.Storage.url(key)`: `/files/...` for local storage, a presigned URL for S3.
 
 ## 10. Tests
 
 | File | Covers |
 |---|---|
-| `test/bilder/storage/local_test.exs` | put/get/url/delete in a `tmp_dir`, rejects `..` keys |
-| `test/bilder/storage/s3_test.exs` | `Req.Test` plug asserts PUT path, `authorization` header present, and the presigned URL shape |
-| `test/bilder/biometrics/positions_test.exs` | codes and pixel sizes |
-| `test/bilder/biometrics/face_attributes_test.exs` | same seed gives the same attributes and prompt |
-| `test/bilder/biometrics_test.exs` | `create_batch` validation, the runner end to end with both services stubbed through `Req.Test` and the Local adapter on `tmp_dir`: correct rows, keys, manifest |
-| `test/bilder_web/live/biometrics_live_test.exs` | form renders (`#biometrics-form`), validation errors, submit creates a batch, the PubSub `{:image_ready, _}` message adds or updates the subject card, disabled state while services are down |
+| `test/phantom/storage/local_test.exs` | put/get/url/delete in a `tmp_dir`, rejects `..` keys |
+| `test/phantom/storage/s3_test.exs` | `Req.Test` plug asserts PUT path, `authorization` header present, and the presigned URL shape |
+| `test/phantom/biometrics/positions_test.exs` | codes and pixel sizes |
+| `test/phantom/biometrics/face_attributes_test.exs` | same seed gives the same attributes and prompt |
+| `test/phantom/biometrics_test.exs` | `create_batch` validation, the runner end to end with both services stubbed through `Req.Test` and the Local adapter on `tmp_dir`: correct rows, keys, manifest |
+| `test/phantom_web/live/biometrics_live_test.exs` | form renders (`#biometrics-form`), validation errors, submit creates a batch, the PubSub `{:image_ready, _}` message adds or updates the subject card, disabled state while services are down |
 | `python_biometrics/tests/` (pytest) | determinism (same seed gives the same bytes), output sizes and 500 ppi DPI metadata, minutiae JSON schema |
 
 Use `start_supervised!` for the runner and task supervisor in tests, and assert on `{:DOWN, ...}` or PubSub
@@ -328,7 +328,7 @@ messages rather than sleeping.
 ## 11. Phases
 
 1. **Storage abstraction**
-   - `Bilder.Storage` with the Local and S3 adapters, `StorageController`, and config.
+   - `Phantom.Storage` with the Local and S3 adapters, `StorageController`, and config.
    - Refactor `ImageGeneration` into generate and store.
    - `GenerateLive` doesn't change behaviour; it can move onto `Storage` later.
 2. **Schema and skeleton UI**
@@ -339,7 +339,7 @@ messages rather than sleeping.
    - `FaceAttributes`, `FaceGenerator.Qwen`, the ICAO and mugshot templates, profiles conditioned on the frontal.
    - Tune the prompts on real output.
 4. **Fingerprints**
-   - `python_biometrics` service and `Bilder.PythonService` generalisation.
+   - `python_biometrics` service and `Phantom.PythonService` generalisation.
    - Rolled prints first (compare Anguli with our own implementation), then plain impressions, slaps, extra
      impressions and the tenprint card.
 5. **Palms:** full and writer's palms.

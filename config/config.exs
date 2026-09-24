@@ -7,41 +7,41 @@
 # General application configuration
 import Config
 
-config :bilder,
-  ecto_repos: [Bilder.Repo],
+config :phantom,
+  ecto_repos: [Phantom.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # Base URL of the local Qwen-Image-2.1 inference service (see python_inference/).
 # Overridable at runtime via the QWEN_SERVICE_URL env var, see config/runtime.exs.
-config :bilder, :qwen_service_url, "http://localhost:8000"
+config :phantom, :qwen_service_url, "http://localhost:8000"
 
 # The Phoenix app supervises python_inference/server.py directly (see
-# Bilder.QwenService) so it starts and stops along with `mix phx.server`.
+# Phantom.QwenService) so it starts and stops along with `mix phx.server`.
 # Disable with QWEN_AUTOSTART=false and override the directory with
 # QWEN_SERVICE_DIR, see config/runtime.exs.
-config :bilder, :start_qwen_service, true
-config :bilder, :qwen_service_dir, Path.expand("../python_inference", __DIR__)
+config :phantom, :start_qwen_service, true
+config :phantom, :qwen_service_dir, Path.expand("../python_inference", __DIR__)
 
 # Base URL of the synthetic friction-ridge service (see python_biometrics/), which
 # the app also starts and stops itself. Overridable with BIOMETRICS_SERVICE_URL,
 # BIOMETRICS_AUTOSTART=false and BIOMETRICS_SERVICE_DIR, see config/runtime.exs.
-config :bilder, :biometrics_service_url, "http://localhost:8001"
-config :bilder, :start_biometrics_service, true
-config :bilder, :biometrics_service_dir, Path.expand("../python_biometrics", __DIR__)
+config :phantom, :biometrics_service_url, "http://localhost:8001"
+config :phantom, :start_biometrics_service, true
+config :phantom, :biometrics_service_dir, Path.expand("../python_biometrics", __DIR__)
 
-# Where Bilder.Biometrics.Harness writes synthetic face runs (and where the
+# Where Phantom.Biometrics.Harness writes synthetic face runs (and where the
 # /biometrics pages read them from). Gitignored.
-config :bilder, :biometrics_output_dir, Path.expand("../data/synthetic/biometrics", __DIR__)
+config :phantom, :biometrics_output_dir, Path.expand("../data/synthetic/biometrics", __DIR__)
 
 # Configure the endpoint
-config :bilder, BilderWeb.Endpoint,
+config :phantom, PhantomWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: BilderWeb.ErrorHTML, json: BilderWeb.ErrorJSON],
+    formats: [html: PhantomWeb.ErrorHTML, json: PhantomWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Bilder.PubSub,
+  pubsub_server: Phantom.PubSub,
   live_view: [signing_salt: "Pr9RgkLp"]
 
 # Configure LiveView
@@ -56,12 +56,12 @@ config :phoenix_live_view,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :bilder, Bilder.Mailer, adapter: Swoosh.Adapters.Local
+config :phantom, Phantom.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  bilder: [
+  phantom: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
@@ -71,7 +71,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.3.0",
-  bilder: [
+  phantom: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

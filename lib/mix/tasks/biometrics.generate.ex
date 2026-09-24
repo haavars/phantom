@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Biometrics.Generate do
   @shortdoc "Generates synthetic subjects: faces (Qwen-Image-2.1), fingerprints and palmprints"
 
   @moduledoc """
-  Generates synthetic subjects, see `Bilder.Biometrics.Harness`.
+  Generates synthetic subjects, see `Phantom.Biometrics.Harness`.
 
       mix biometrics.generate --subjects 5
       mix biometrics.generate --shots rolled,slaps,palms,card --captures 2
@@ -14,13 +14,13 @@ defmodule Mix.Tasks.Biometrics.Generate do
     * `--subjects` - number of subjects (default 3)
     * `--seed` - run seed (default random); same seed + same run name resumes a run
     * `--shots` - comma-separated shot ids and groups (default: faces). Groups: `faces`
-      (#{Enum.join(Bilder.Biometrics.FacePrompts.default_shots(), ", ")}), `rolled`, `slaps`,
-      `palms`, `card`. Face shots: #{Enum.join(Bilder.Biometrics.FacePrompts.shots(), ", ")}
+      (#{Enum.join(Phantom.Biometrics.FacePrompts.default_shots(), ", ")}), `rolled`, `slaps`,
+      `palms`, `card`. Face shots: #{Enum.join(Phantom.Biometrics.FacePrompts.shots(), ", ")}
     * `--captures` - captures per finger and palm shot, for mated pairs (default 1, max 3)
     * `--renderer` - friction-ridge renderer: `diffusion` (realistic, GPU; default) or
       `procedural` (fast CPU draft)
     * `--steps` - denoising steps for face shots (default 40)
-    * `--out` - output root (default `config :bilder, :biometrics_output_dir`, data/synthetic/biometrics)
+    * `--out` - output root (default `config :phantom, :biometrics_output_dir`, data/synthetic/biometrics)
     * `--run` - run directory name (default `<timestamp>-seed<seed>`)
     * `--force` - regenerate images that already exist
 
@@ -31,8 +31,8 @@ defmodule Mix.Tasks.Biometrics.Generate do
 
   use Mix.Task
 
-  alias Bilder.Biometrics.{FrictionRidge, Harness, Shots}
-  alias Bilder.ImageGeneration
+  alias Phantom.Biometrics.{FrictionRidge, Harness, Shots}
+  alias Phantom.ImageGeneration
 
   @switches [
     subjects: :integer,

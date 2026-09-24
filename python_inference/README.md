@@ -36,7 +36,7 @@ It also checks for a Hugging Face token, read from the standard `~/.cache/huggin
 ## Run
 
 Once the one-time setup above is done, you don't need to run this yourself: `mix phx.server` starts this
-process automatically (see `Bilder.PythonService`) and stops it when the app shuts down. It looks for
+process automatically (see `Phantom.PythonService`) and stops it when the app shuts down. It looks for
 `python_inference/.venv/bin/python`, falling back to `python3` on your `PATH` with a warning if the venv
 isn't there yet.
 

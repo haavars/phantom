@@ -14,9 +14,9 @@ def free_port():
 
 
 def test_exits_when_the_parent_app_goes_away():
-    """Started like Bilder.PythonService does it, the server exits once its stdin closes."""
+    """Started like Phantom.PythonService does it, the server exits once its stdin closes."""
     port = free_port()
-    env = {**os.environ, "PORT": str(port), "BILDER_EXIT_WITH_PARENT": "1"}
+    env = {**os.environ, "PORT": str(port), "PHANTOM_EXIT_WITH_PARENT": "1"}
     proc = subprocess.Popen(
         [sys.executable, "server.py"], cwd=Path(__file__).parent.parent, env=env,
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

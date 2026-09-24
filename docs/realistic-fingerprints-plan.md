@@ -190,14 +190,14 @@ The detail view shows them, and the run page flags rejected or retried images.
   - Slaps: render each plain finger separately, then composite as today.
   - Palms: tiled generation. Palms are the last phase, and depend on training data.
 
-## 6. Integration into Bilder
+## 6. Integration into Phantom
 
 | Area | Change |
 |---|---|
 | `python_biometrics` | A `renderer` option (`procedural` / `diffusion`) on `/render`. The diffusion renderer runs on the GPU with optional torch dependencies (a separate `requirements-gpu.txt`). New `verify.py` wraps NBIS and NFIQ 2 plus the minutiae comparison. The response includes the verification metrics. |
 | Retry | The service renders, verifies, and re-renders with a new appearance seed up to N times (default 3). The identity is unchanged; only the diffusion seed changes. It returns the best attempt with `accepted: false` if none pass. |
 | GPU sharing | Qwen (about 16 GB with offload) and SD 1.5 + ControlNet (about 4–6 GB in fp16) share the 24 GB card. The runner already renders one image at a time. If VRAM gets tight, load the renderer lazily and free it after a batch. |
-| `Bilder.Biometrics.Shots` / `RunRequest` | A renderer choice and a style (sensor or acquisition type) on the form and in `mix biometrics.generate` (`--renderer`, `--style`). |
+| `Phantom.Biometrics.Shots` / `RunRequest` | A renderer choice and a style (sensor or acquisition type) on the form and in `mix biometrics.generate` (`--renderer`, `--style`). |
 | UI | NFIQ 2 and minutiae recall in the detail view. A badge on rejected or low-quality tiles. Batch mated/non-mated score summary on the run page. |
 | Determinism | Unchanged for identity (subject seed). The appearance seed is derived from (subject seed, shot, capture, attempt), so accepted images can be reproduced. |
 

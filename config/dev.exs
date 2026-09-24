@@ -1,11 +1,11 @@
 import Config
 
 # Configure your database
-config :bilder, Bilder.Repo,
+config :phantom, Phantom.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "bilder_dev",
+  database: "phantom_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -16,7 +16,7 @@ config :bilder, Bilder.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :bilder, BilderWeb.Endpoint,
+config :phantom, PhantomWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
@@ -25,8 +25,8 @@ config :bilder, BilderWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "Xco5PyG/iIxJQokKslADEtPUdNgh/5h+AHaLo6MwYBDnywBWOSakudR4G8Big5VU",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:bilder, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:bilder, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:phantom, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:phantom, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -53,7 +53,7 @@ config :bilder, BilderWeb.Endpoint,
 # different ports.
 
 # Enable dev routes for dashboard and mailbox
-config :bilder, dev_routes: true
+config :phantom, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
