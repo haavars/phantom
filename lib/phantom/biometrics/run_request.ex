@@ -3,14 +3,15 @@ defmodule Phantom.Biometrics.RunRequest do
   The parameters of a new run, as `Phantom.Biometrics.create_run/1` takes
   them from the web form or from IEx. `shots` holds shot ids and group
   names (`"faces"`, `"rolled"`, `"slaps"`, `"palms"`, `"card"`), see
-  `Phantom.Biometrics.Shots.expand/2`.
+  `Phantom.Biometrics.Shots.expand/2`. `traits` fixes the appearance of
+  every subject (`Phantom.Biometrics.Traits`); what it leaves out is random.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{FacePrompts, Run, Shots}
+  alias Phantom.Biometrics.{FacePrompts, Run, Shots, Traits}
 
   @max_subjects 100
   @steps [20, 30, 40, 50]
@@ -27,6 +28,8 @@ defmodule Phantom.Biometrics.RunRequest do
     field :captures, :integer, default: 1
     field :renderer, :string, default: "diffusion"
     field :run, :string
+
+    embeds_one :traits, Traits, on_replace: :update, defaults_to_struct: true
   end
 
   def max_subjects, do: @max_subjects
@@ -35,6 +38,7 @@ defmodule Phantom.Biometrics.RunRequest do
   def changeset(request \\ %__MODULE__{}, attrs) do
     request
     |> cast(attrs, [:subjects, :seed, :steps, :shots, :captures, :renderer, :run])
+    |> cast_embed(:traits)
     # The form sends an empty value so unticking every box still submits `shots`.
     |> update_change(:shots, fn shots -> Enum.reject(shots, &(&1 == "")) end)
     |> validate_required([:subjects, :steps])

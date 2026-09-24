@@ -159,6 +159,13 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     assert has_element?(view, "#add-shots")
   end
 
+  test "shows the traits every subject shares", %{conn: conn} do
+    run = create_run(subjects: 1, traits: %{ancestry: "South Asian", build: "slim"})
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+    assert has_element?(view, "#run-traits", "South Asian · slim build")
+  end
+
   test "redirects to the run list for unknown runs", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/biometrics"}}} = live(conn, ~p"/biometrics/missing")
   end

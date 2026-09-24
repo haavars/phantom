@@ -15,7 +15,7 @@ defmodule PhantomWeb.BiometricsRunLive do
   import PhantomWeb.BiometricsComponents
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{FacePrompts, Gallery, Run, Shots}
+  alias Phantom.Biometrics.{FacePrompts, Gallery, Run, Shots, Traits}
 
   @impl true
   def mount(%{"run" => name} = params, _session, socket) do
@@ -402,6 +402,12 @@ defmodule PhantomWeb.BiometricsRunLive do
             <div :if={@run.renderer && Enum.any?(@run.shots, &Shots.ridge?/1)}>
               <dt class="inline">ridges</dt>
               <dd class="inline text-base-content">{@run.renderer}</dd>
+            </div>
+            <div :if={@run.traits != %{}} id="run-traits">
+              <dt class="inline">everyone</dt>
+              <dd class="inline text-base-content">
+                {Enum.join(Traits.describe(@run.traits), " · ")}
+              </dd>
             </div>
             <div :if={@run.steps}>
               <dt class="inline">steps</dt>

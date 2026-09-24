@@ -156,6 +156,7 @@ defmodule PhantomWeb.BiometricsComponents do
   end
 
   attr :variant, :string, default: "secondary", values: ~w(primary secondary danger)
+  attr :class, :any, default: nil
   attr :rest, :global, include: ~w(type disabled form name value)
   slot :inner_block, required: true
 
@@ -169,7 +170,8 @@ defmodule PhantomWeb.BiometricsComponents do
         @variant == "secondary" &&
           "border border-base-300 bg-base-100 text-base-content hover:bg-base-200",
         @variant == "danger" &&
-          "border border-error/40 bg-base-100 text-error hover:bg-error/10"
+          "border border-error/40 bg-base-100 text-error hover:bg-error/10",
+        @class
       ]}
       {@rest}
     >

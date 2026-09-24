@@ -8,6 +8,31 @@ defmodule Phantom.Biometrics.FaceAttributesTest do
     refute FaceAttributes.sample(1234) == FaceAttributes.sample(1235)
   end
 
+  test "the option lists cover everything the ancestries sample" do
+    for ancestry <- FaceAttributes.ancestries() do
+      # Filtering by ancestry only drops values, it never loses one.
+      assert FaceAttributes.skin_tones(ancestry) != []
+      assert FaceAttributes.eye_colors(ancestry) != []
+      assert FaceAttributes.hair_textures(ancestry) != []
+    end
+
+    for seed <- 1..300 do
+      attrs = FaceAttributes.sample(seed)
+      assert attrs.skin_tone in FaceAttributes.skin_tones(attrs.ancestry)
+      assert attrs.eye_color in FaceAttributes.eye_colors(attrs.ancestry)
+      assert attrs.clothing in FaceAttributes.clothing()
+      assert attrs.face_shape in FaceAttributes.face_shapes()
+      assert attrs.build in FaceAttributes.builds()
+      assert Enum.all?(attrs.marks, &(&1 in FaceAttributes.marks()))
+
+      base_color = String.replace_prefix(attrs.hair_color, "greying ", "")
+      assert base_color in FaceAttributes.hair_colors()
+    end
+
+    assert length(FaceAttributes.hair_styles(:male)) + length(FaceAttributes.hair_styles(:female)) ==
+             length(FaceAttributes.hair_styles())
+  end
+
   test "attributes read back from how a subject stores them" do
     for seed <- 1..50 do
       attrs = FaceAttributes.sample(seed)

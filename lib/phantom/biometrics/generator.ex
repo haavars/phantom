@@ -4,7 +4,8 @@ defmodule Phantom.Biometrics.Generator do
   recorded through `Phantom.Biometrics` as it finishes.
 
   The subject's seed is derived from the run seed and its position, and
-  everything else from that: its attributes (`FaceAttributes`), face prompts
+  everything else from that and the run's traits: its attributes
+  (`FaceAttributes`, with the traits the run fixes), face prompts
   and seeds (`Generator.Faces`) and its fingers and palms
   (`Generator.FrictionRidges`). So rendering a subject again gives the same
   person, and images already stored are kept rather than rendered again.
@@ -19,12 +20,13 @@ defmodule Phantom.Biometrics.Generator do
   """
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{FaceAttributes, FacePrompts, Image, Run, Shots, Storage}
+  alias Phantom.Biometrics.{FaceAttributes, FacePrompts, Image, Run, Shots, Storage, Traits}
   alias Phantom.Biometrics.Generator.{Faces, FrictionRidges}
 
   @doc "Renders the subject at `position` (1-based) of `run`. Returns the completed subject."
   def generate_subject(%Run{} = run, position) do
-    sampled = run.seed |> derive_seed(position) |> FaceAttributes.sample()
+    sampled =
+      run.seed |> derive_seed(position) |> FaceAttributes.sample(Traits.sample_opts(run.traits))
 
     # Only used for a subject that hasn't been rendered before.
     subject =

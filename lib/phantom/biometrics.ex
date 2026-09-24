@@ -35,7 +35,8 @@ defmodule Phantom.Biometrics do
     RunRequest,
     Shots,
     Storage,
-    Subject
+    Subject,
+    Traits
   }
 
   alias Phantom.Biometrics.Workers.GenerateSubject
@@ -162,6 +163,11 @@ defmodule Phantom.Biometrics do
 
       Phantom.Biometrics.create_run(%{subjects: 5, shots: ["rolled", "card"], captures: 2})
 
+      Phantom.Biometrics.create_run(%{
+        subjects: 10,
+        traits: %{ancestry: "Northern European", sex: "female"}
+      })
+
   Returns `{:ok, run}` or `{:error, changeset}`.
   """
   def create_run(params) do
@@ -178,6 +184,7 @@ defmodule Phantom.Biometrics do
         renderer: request.renderer,
         steps: request.steps,
         prompt_version: FacePrompts.version(),
+        traits: Traits.to_map(request.traits),
         subject_count: request.subjects
       }
 

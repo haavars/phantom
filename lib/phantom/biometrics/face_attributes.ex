@@ -8,7 +8,12 @@ defmodule Phantom.Biometrics.FaceAttributes do
 
   Ancestry is sampled uniformly by default so a test gallery covers a broad range
   of appearances; pass `:ancestry_weights` / `:female_share` to `sample/2` to match
-  a specific population instead.
+  a specific population instead, or fix any attribute (`:sex`, `:ancestry`,
+  `:skin_tone`, ...) to give every subject of a run the same one (see
+  `Phantom.Biometrics.Traits`).
+
+  The option lists (`ancestries/0`, `skin_tones/1`, `hair_styles/0`, ...) are
+  what attributes can be fixed to.
   """
 
   @derive Jason.Encoder
@@ -101,22 +106,74 @@ defmodule Phantom.Biometrics.FaceAttributes do
     }
   }
 
+  # Hair styles: `{id, label, template}`. Sampling picks from the list for the
+  # subject's sex (and a receding hairline or shaved head for some men); a
+  # fixed style applies to anyone.
   @male_hair [
-    "short {texture} {color} hair",
-    "a {color} buzz cut",
-    "{texture} {color} hair, short on the sides and longer on top",
-    "medium-length {texture} {color} hair",
-    "short {texture} {color} hair with a side parting"
+    {"short", "Short", "short {texture} {color} hair"},
+    {"buzz_cut", "Buzz cut", "a {color} buzz cut"},
+    {"short_sides", "Short sides, longer on top",
+     "{texture} {color} hair, short on the sides and longer on top"},
+    {"medium", "Medium length", "medium-length {texture} {color} hair"},
+    {"side_parting", "Side parting", "short {texture} {color} hair with a side parting"}
   ]
 
+  @receding {"receding", "Receding hairline", "a receding hairline with short {color} hair"}
+  @shaved {"shaved", "Shaved head", "a shaved head"}
+
   @female_hair [
-    "long {texture} {color} hair worn loose",
-    "{texture} {color} hair tied back in a ponytail",
-    "shoulder-length {texture} {color} hair",
-    "a short {texture} {color} bob",
-    "{texture} {color} hair pulled back into a bun",
-    "a short {color} pixie cut"
+    {"long_loose", "Long, worn loose", "long {texture} {color} hair worn loose"},
+    {"ponytail", "Ponytail", "{texture} {color} hair tied back in a ponytail"},
+    {"shoulder_length", "Shoulder length", "shoulder-length {texture} {color} hair"},
+    {"bob", "Short bob", "a short {texture} {color} bob"},
+    {"bun", "Bun", "{texture} {color} hair pulled back into a bun"},
+    {"pixie", "Pixie cut", "a short {color} pixie cut"}
   ]
+
+  @hair_styles @male_hair ++ [@receding, @shaved] ++ @female_hair
+
+  # Display order for the colours and textures the ancestries use, light to dark.
+  @skin_tones [
+    "very fair",
+    "fair",
+    "light",
+    "light beige",
+    "light olive",
+    "olive",
+    "light tan",
+    "tan",
+    "light brown",
+    "medium brown",
+    "brown",
+    "dark brown",
+    "deep brown"
+  ]
+
+  @eye_colors [
+    "blue",
+    "grey-blue",
+    "grey",
+    "green",
+    "hazel",
+    "light brown",
+    "brown",
+    "dark brown"
+  ]
+
+  @hair_colors [
+    "blond",
+    "dark blond",
+    "red",
+    "auburn",
+    "light brown",
+    "brown",
+    "dark brown",
+    "black"
+  ]
+
+  @grey_hair ["grey", "white", "salt-and-pepper"]
+
+  @hair_textures ["straight", "wavy", "curly", "coily", "tightly coiled"]
 
   @facial_hair [
     {"clean-shaven", 40},
@@ -161,6 +218,41 @@ defmodule Phantom.Biometrics.FaceAttributes do
 
   def ancestries, do: @ancestries |> Map.keys() |> Enum.sort()
 
+  @doc "Skin tones `ancestry` is sampled from, or every skin tone for `nil`."
+  def skin_tones(ancestry \\ nil), do: palette(@skin_tones, :skin, ancestry)
+
+  @doc "Eye colours `ancestry` is sampled from, or every eye colour for `nil`."
+  def eye_colors(ancestry \\ nil), do: palette(@eye_colors, :eyes, ancestry)
+
+  @doc "Hair colours `ancestry` is sampled from, or all of them for `nil`, then grey and white."
+  def hair_colors(ancestry \\ nil), do: palette(@hair_colors, :hair, ancestry) ++ @grey_hair
+
+  @doc "Hair textures `ancestry` is sampled from, or all of them for `nil`."
+  def hair_textures(ancestry \\ nil), do: palette(@hair_textures, :texture, ancestry)
+
+  defp palette(all, _key, nil), do: all
+
+  defp palette(all, key, ancestry) do
+    case @ancestries do
+      %{^ancestry => palette} -> Enum.filter(all, &(&1 in Map.fetch!(palette, key)))
+      _unknown -> all
+    end
+  end
+
+  @doc "Hair styles as `{label, id}`, men's first."
+  def hair_styles, do: for({id, label, _template} <- @hair_styles, do: {label, id})
+
+  @doc "The hair styles subjects of `sex` are sampled from, as `{label, id}`."
+  def hair_styles(:male),
+    do: for({id, label, _} <- @male_hair ++ [@receding, @shaved], do: {label, id})
+
+  def hair_styles(:female), do: for({id, label, _} <- @female_hair, do: {label, id})
+
+  def facial_hair_options, do: Enum.map(@facial_hair, &elem(&1, 0))
+  def face_shapes, do: @face_shapes
+  def builds, do: Enum.map(@builds, &elem(&1, 0))
+  def marks, do: @marks
+
   @doc """
   Samples attributes for `seed`.
 
@@ -169,18 +261,30 @@ defmodule Phantom.Biometrics.FaceAttributes do
     * `:female_share` - probability of a female subject, defaults to 0.5
     * `:age_range` - inclusive `min..max`, defaults to `18..75`
     * `:ancestry_weights` - map of ancestry name to weight, defaults to uniform over `ancestries/0`
+
+  Fixed attributes, instead of sampling them:
+
+    * `:sex` (`:female` / `:male`), `:ancestry`
+    * `:skin_tone`, `:eye_color`, `:hair_color` (not greyed with age) and
+      `:hair_texture`, from the option lists
+    * `:hair_style` - an id from `hair_styles/0`
+    * `:facial_hair` - for men; women have none
+    * `:face_shape`, `:build`, `:clothing`
+    * `:marks` - a list, `[]` for none
+
+  A fixed attribute still takes its random draw, so the attributes left
+  random come from the same draws whatever is fixed.
   """
   def sample(seed, opts \\ []) when is_integer(seed) do
     rng = :rand.seed_s(:exsss, {seed, 0x5EED, 0xFACE})
 
     {sex, rng} =
-      weighted(
-        [
-          {:female, Keyword.get(opts, :female_share, 0.5)},
-          {:male, 1.0 - Keyword.get(opts, :female_share, 0.5)}
-        ],
-        rng
-      )
+      [
+        {:female, Keyword.get(opts, :female_share, 0.5)},
+        {:male, 1.0 - Keyword.get(opts, :female_share, 0.5)}
+      ]
+      |> weighted(rng)
+      |> fixed(opts[:sex])
 
     {age, rng} = pick(Enum.to_list(Keyword.get(opts, :age_range, 18..75)), rng)
 
@@ -189,19 +293,21 @@ defmodule Phantom.Biometrics.FaceAttributes do
       |> Keyword.get(:ancestry_weights, Map.new(ancestries(), &{&1, 1}))
       |> Enum.sort()
       |> weighted(rng)
+      |> fixed(opts[:ancestry])
 
     palette = Map.fetch!(@ancestries, ancestry)
-    {skin_tone, rng} = pick(palette.skin, rng)
-    {eye_color, rng} = pick(palette.eyes, rng)
+    {skin_tone, rng} = palette.skin |> pick(rng) |> fixed(opts[:skin_tone])
+    {eye_color, rng} = palette.eyes |> pick(rng) |> fixed(opts[:eye_color])
     {base_hair_color, rng} = pick(palette.hair, rng)
-    {texture, rng} = pick(palette.texture, rng)
-    {hair_color, rng} = age_hair_color(base_hair_color, age, rng)
-    {hair, rng} = hair(sex, age, texture, hair_color, rng)
-    {facial_hair, rng} = facial_hair(sex, rng)
-    {face_shape, rng} = pick(@face_shapes, rng)
-    {build, rng} = weighted(@builds, rng)
-    {clothing, rng} = pick(@clothing, rng)
-    {marks, _rng} = marks(rng)
+    {texture, rng} = palette.texture |> pick(rng) |> fixed(opts[:hair_texture])
+    {hair_color, rng} = base_hair_color |> age_hair_color(age, rng) |> fixed(opts[:hair_color])
+    {hair_style, rng} = sex |> hair_style(age, rng) |> fixed(opts[:hair_style])
+    {facial_hair, rng} = sex |> facial_hair(rng) |> fixed(sex == :male && opts[:facial_hair])
+    {face_shape, rng} = @face_shapes |> pick(rng) |> fixed(opts[:face_shape])
+    {build, rng} = @builds |> weighted(rng) |> fixed(opts[:build])
+    {clothing, rng} = @clothing |> pick(rng) |> fixed(opts[:clothing])
+    {marks, _rng} = rng |> marks() |> fixed(opts[:marks])
+    hair = fill_hair(hair_style, texture, hair_color)
 
     %__MODULE__{
       seed: seed,
@@ -275,28 +381,34 @@ defmodule Phantom.Biometrics.FaceAttributes do
     end
   end
 
-  defp hair(:male, age, texture, color, rng) do
+  defp hair_style(:male, age, rng) do
     {roll, rng} = :rand.uniform_s(rng)
 
     cond do
-      age >= 40 and roll < 0.3 -> {"a receding hairline with short #{color} hair", rng}
-      roll < 0.08 -> {"a shaved head", rng}
-      true -> fill_hair(@male_hair, texture, color, rng)
+      age >= 40 and roll < 0.3 -> {elem(@receding, 0), rng}
+      roll < 0.08 -> {elem(@shaved, 0), rng}
+      true -> pick_style(@male_hair, rng)
     end
   end
 
-  defp hair(:female, _age, texture, color, rng), do: fill_hair(@female_hair, texture, color, rng)
+  defp hair_style(:female, _age, rng), do: pick_style(@female_hair, rng)
 
-  defp fill_hair(templates, texture, color, rng) do
-    {template, rng} = pick(templates, rng)
-
-    hair =
-      template
-      |> String.replace("{texture}", texture)
-      |> String.replace("{color}", color)
-
-    {hair, rng}
+  defp pick_style(styles, rng) do
+    {{id, _label, _template}, rng} = pick(styles, rng)
+    {id, rng}
   end
+
+  defp fill_hair(style, texture, color) do
+    {_id, _label, template} = List.keyfind!(@hair_styles, style, 0)
+
+    template
+    |> String.replace("{texture}", texture)
+    |> String.replace("{color}", color)
+  end
+
+  # Takes a fixed value over the drawn one, keeping the draw.
+  defp fixed(drawn, fixed) when fixed in [nil, false], do: drawn
+  defp fixed({_drawn, rng}, fixed), do: {fixed, rng}
 
   defp facial_hair(:female, rng), do: {nil, rng}
   defp facial_hair(:male, rng), do: weighted(@facial_hair, rng)

@@ -28,6 +28,8 @@ defmodule Phantom.Biometrics.Run do
     field :renderer, :string, default: "diffusion"
     field :steps, :integer
     field :prompt_version, :string
+    # Appearance every subject shares (`Phantom.Biometrics.Traits.to_map/1`).
+    field :traits, :map, default: %{}
     field :subject_count, :integer
     field :report, :map
     field :error, :string
@@ -57,6 +59,7 @@ defmodule Phantom.Biometrics.Run do
       :renderer,
       :steps,
       :prompt_version,
+      :traits,
       :subject_count
     ])
     |> validate_required([:name, :seed, :shots, :subject_count])

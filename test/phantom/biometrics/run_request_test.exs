@@ -1,7 +1,7 @@
 defmodule Phantom.Biometrics.RunRequestTest do
   use Phantom.DataCase, async: true
 
-  alias Phantom.Biometrics.{FacePrompts, RunRequest}
+  alias Phantom.Biometrics.{FacePrompts, RunRequest, Traits}
 
   defp submit(params),
     do: params |> RunRequest.changeset() |> Ecto.Changeset.apply_action(:insert)
@@ -12,6 +12,17 @@ defmodule Phantom.Biometrics.RunRequestTest do
 
     assert %{subjects: 2, steps: 40, captures: 1, renderer: "diffusion", seed: nil, run: nil} =
              request
+  end
+
+  test "takes the traits every subject shares" do
+    assert {:ok, %{traits: traits}} = submit(%{})
+    assert Traits.to_map(traits) == %{}
+
+    assert {:ok, %{traits: %{sex: "male", ancestry: "Northern European", eye_color: nil}}} =
+             submit(%{"traits" => %{"sex" => "male", "ancestry" => "Northern European"}})
+
+    assert {:error, changeset} = submit(%{"traits" => %{"ancestry" => "Atlantean"}})
+    refute changeset.changes.traits.valid?
   end
 
   test "accepts single shot ids as well as groups" do

@@ -49,7 +49,8 @@ defmodule PhantomWeb.BiometricsLiveTest do
     |> form("#batch-form", batch: %{subjects: "2", run: "", shots: ["", "probe_aged"]})
     |> render_change()
 
-    assert has_element?(view, "#run-estimate", "4 images")
+    assert has_element?(view, "#estimate-people", "2")
+    assert has_element?(view, "#estimate-images", "4")
   end
 
   test "queues a run and navigates to it", %{conn: conn} do
@@ -66,6 +67,92 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert {:ok, %{images: images}} = Biometrics.get_subject("ui-run", "subject_001")
     assert Enum.any?(images, &(&1.shot == "rolled_10" and &1.status == :ok))
     refute Enum.any?(images, &(&1.shot == "mugshot_frontal"))
+  end
+
+  test "fixes traits for everyone in the run and leaves the rest random", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics")
+
+    assert has_element?(view, "#traits-summary", "Every trait is random")
+    assert has_element?(view, "#batch_traits_0_sex_random[checked]")
+    refute has_element?(view, "#batch_traits_0_facial_hair[disabled]")
+
+    view
+    |> form("#batch-form",
+      batch: %{traits: %{sex: "female", ancestry: "Northern European", age_min: "30"}}
+    )
+    |> render_change()
+
+    assert has_element?(view, "#traits-summary", "Female")
+    assert has_element?(view, "#traits-summary", "Northern European")
+    assert has_element?(view, "#traits-summary", "30–75 years")
+    assert has_element?(view, "#traits-example", "woman of Northern European descent")
+    # Women have no facial hair; colours are the ones the ancestry has.
+    assert has_element?(view, "#batch_traits_0_facial_hair[disabled]")
+    assert has_element?(view, "#batch_traits_0_sex_female[checked]")
+    assert has_element?(view, ~s(#batch_traits_0_eye_color option[value="blue"]))
+    refute has_element?(view, ~s(#batch_traits_0_eye_color option[value="dark brown"]))
+
+    # A set trait goes back to random on its own.
+    view |> element("#batch_traits_0_ancestry_clear") |> render_click()
+    refute has_element?(view, "#traits-summary", "Northern European")
+    assert has_element?(view, "#traits-summary", "Female")
+
+    view
+    |> form("#batch-form", batch: %{traits: %{age_min: "50", age_max: "40"}})
+    |> render_change()
+
+    assert has_element?(view, "#people-section", "must be at least the minimum age")
+    assert has_element?(view, "#traits-example", "Fix the traits marked in red")
+
+    view |> element("#random-traits") |> render_click()
+    assert has_element?(view, "#traits-summary", "Every trait is random")
+
+    assert {:error, {:live_redirect, %{to: "/biometrics/nordic"}}} =
+             view
+             |> form("#batch-form",
+               batch: %{
+                 subjects: "2",
+                 run: "nordic",
+                 shots: ["", "mugshot_frontal"],
+                 traits: %{sex: "female", ancestry: "Northern European", eye_color: "blue"}
+               }
+             )
+             |> render_submit()
+
+    assert {:ok, run} = Biometrics.get_run("nordic")
+
+    assert run.traits == %{
+             "sex" => "female",
+             "ancestry" => "Northern European",
+             "eye_color" => "blue"
+           }
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics")
+    assert has_element?(view, "#run-traits-nordic", "Northern European")
+  end
+
+  test "ticks all, the default or none of a modality's shots", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics")
+    assert has_element?(view, "#shot-mugshot_left_profile[checked]")
+    refute has_element?(view, "#shot-probe_glasses[checked]")
+
+    view |> element("#pick-face-all") |> render_click()
+    assert has_element?(view, "#shot-probe_glasses[checked]")
+    assert has_element?(view, "#group-rolled[checked]")
+
+    view |> element("#pick-face-none") |> render_click()
+    refute has_element?(view, "#shot-mugshot_left_profile[checked]")
+    refute has_element?(view, "#needs-face")
+    assert has_element?(view, "#needs-ridge")
+
+    view |> element("#pick-ridge-none") |> render_click()
+    assert has_element?(view, "#batch-form", "pick at least one shot")
+    assert has_element?(view, "#start-run[disabled]")
+
+    view |> element("#pick-face-default") |> render_click()
+    assert has_element?(view, "#shot-probe_aged[checked]")
+    refute has_element?(view, "#shot-probe_glasses[checked]")
+    refute has_element?(view, "#group-rolled[checked]")
   end
 
   test "shows the active run while it renders and cancels it", %{conn: conn} do

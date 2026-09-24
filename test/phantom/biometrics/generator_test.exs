@@ -162,6 +162,36 @@ defmodule Phantom.Biometrics.GeneratorTest do
     end
   end
 
+  test "gives every subject the run's traits" do
+    stub_faces(self())
+
+    run =
+      generate(%{
+        run: unique_run_name("traits"),
+        subjects: 4,
+        shots: ["mugshot_frontal"],
+        traits: %{sex: "female", ancestry: "Northern European", age_min: 30, age_max: 39}
+      })
+
+    assert run.traits == %{
+             "sex" => "female",
+             "ancestry" => "Northern European",
+             "age_min" => 30,
+             "age_max" => 39
+           }
+
+    for subject <- run.subjects do
+      assert %{"sex" => "female", "ancestry" => "Northern European", "age" => age} =
+               subject.attributes
+
+      assert age in 30..39
+      assert subject.description =~ "woman of Northern European descent"
+      assert image(run, subject.name, "mugshot_frontal").prompt =~ "Northern European"
+    end
+
+    assert run.subjects |> Enum.map(& &1.attributes) |> Enum.uniq() |> length() == 4
+  end
+
   test "skips conditioned shots when the anchor fails" do
     stub_qwen(generate: &Plug.Conn.send_resp(&1, 500, "boom"))
 
