@@ -6,13 +6,46 @@ contact area, pressure, and sensor noise. That is what makes two captures of one
 finger a realistic mated pair rather than identical copies.
 """
 
+from dataclasses import dataclass, field
+
 import cv2
 import numpy as np
 
-from .synthesis import smooth_noise
+from .synthesis import rng_for, smooth_noise
 
 PAPER = 250  # background grey level
 RIDGE_DARK = (25, 70)  # darkest ridge grey, sampled per capture
+
+
+@dataclass
+class Capture:
+    """One impression before rendering: its geometry and ground truth.
+
+    This is the identity half of an image. Any renderer (procedural or
+    diffusion) turns it into pixels, and verification checks the pixels against
+    it, so the ground truth holds whatever the renderer does.
+    """
+
+    ridges: np.ndarray  # warped clean ridge field, > 0 on ridges
+    contact: np.ndarray  # 0..1 contact area
+    meta: dict  # ground truth: pattern, singular points, minutiae
+    rng: np.random.Generator  # appearance randomness for the first attempt
+    appearance_key: tuple  # derives appearance randomness for later attempts
+    creases: int = 0
+    # Slaps: (fgp, placed contact mask) per finger, for per-finger checks.
+    fingers: list = field(default_factory=list)
+
+    def appearance_rng(self, attempt):
+        """Randomness for rendering attempt `attempt` (0, 1, ...).
+
+        Attempt 0 continues the capture's own generator, so first attempts are
+        what the procedural renderer has always produced.
+        """
+        return self.rng if attempt == 0 else rng_for(*self.appearance_key, 101, attempt)
+
+    def ridge_map(self):
+        """The clean binarised ridge map: black ridges on white, only in the contact area."""
+        return np.where((self.ridges > 0) & (self.contact > 0.5), 0, 255).astype(np.uint8)
 
 
 def warp_maps(out_shape, centre_src, centre_dst, angle_deg, scale, distortion, rng, stretch=(1.0, 1.0)):
@@ -54,6 +87,13 @@ def ellipse_mask(shape, centre, axes, angle_deg=0.0, softness=9, bottom=None):
     if bottom is not None:
         mask[int(bottom):, :] = 0
     return cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), softness)
+
+
+def render_capture(capture, attempt=0):
+    """The procedural renderer: a capture's grey image for rendering `attempt`."""
+    rng = capture.appearance_rng(attempt)
+    creases = capture.creases if attempt == 0 else int(rng.integers(0, 3))
+    return render(capture.ridges, capture.contact, rng, creases=creases)
 
 
 def render(ridges, contact, rng, pressure=None, noise=None, creases=0, pores=True):

@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from . import fingerprints as fp
+from . import impression as imp
 
 CARD_SIZE = (4000, 4000)
 HEADER_H = 600
@@ -25,7 +26,10 @@ FINGER_LABELS = {
 }
 
 
-def card(seed, capture=0, subject_label=""):
+def card(seed, capture=0, subject_label="", render=None):
+    """The card for one capture. `render` turns an `impression.Capture` into an
+    image (default: the procedural renderer)."""
+    render = render or imp.render_capture
     w, h = CARD_SIZE
     canvas = Image.new("L", (w, h), 255)
     draw = ImageDraw.Draw(canvas)
@@ -42,15 +46,16 @@ def card(seed, capture=0, subject_label=""):
     patterns = {}
     for row_y, fingers in ((ROW1_Y, range(1, 6)), (ROW2_Y, range(6, 11))):
         for i, finger in enumerate(fingers):
-            image, meta = fp.rolled(seed, finger, capture)
-            patterns[finger] = meta["pattern"]
+            rolled = fp.rolled_capture(seed, finger, capture)
+            image = render(rolled)
+            patterns[finger] = rolled.meta["pattern"]
             x = i * 800
             box(draw, x, row_y, 800, 750 + LABEL_H, f"{finger}. {FINGER_LABELS[finger]}", label)
             canvas.paste(Image.fromarray(image), (x, row_y + LABEL_H))
 
-    left_four, _ = fp.slap(seed, 14, capture)
-    thumbs, _ = fp.slap(seed, 15, capture)
-    right_four, _ = fp.slap(seed, 13, capture)
+    left_four = render(fp.slap_capture(seed, 14, capture))
+    thumbs = render(fp.slap_capture(seed, 15, capture))
+    right_four = render(fp.slap_capture(seed, 13, capture))
     slap_h = 1500
     placements = [
         (0, 1600, left_four, "LEFT FOUR FINGERS TAKEN SIMULTANEOUSLY"),

@@ -62,6 +62,7 @@ defmodule BilderWeb.BiometricsRunLive do
           prompt_version: FacePrompts.version(),
           subjects: active.total,
           completed: 0,
+          report: nil,
           updated_at: nil
         }
 
@@ -122,7 +123,14 @@ defmodule BilderWeb.BiometricsRunLive do
     run = socket.assigns.run
 
     opts =
-      [run: run.name, seed: run.seed, shots: run.shots, steps: run.steps, subjects: run.subjects]
+      [
+        run: run.name,
+        seed: run.seed,
+        shots: run.shots,
+        steps: run.steps,
+        subjects: run.subjects,
+        renderer: run[:renderer]
+      ]
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
     with :ok <- services_ready(run.shots),
@@ -303,6 +311,10 @@ defmodule BilderWeb.BiometricsRunLive do
 
               <dd class="inline text-base-content">{@run.prompt_version}</dd>
             </div>
+            <div :if={@run[:renderer] && Enum.any?(@run.shots, &Shots.ridge?/1)}>
+              <dt class="inline">ridges</dt>
+              <dd class="inline text-base-content">{@run.renderer}</dd>
+            </div>
             <div :if={@run.steps}>
               <dt class="inline">steps</dt>
 
@@ -354,6 +366,8 @@ defmodule BilderWeb.BiometricsRunLive do
         </div>
         <.progress_bar value={run_fraction(@progress)} />
       </div>
+
+      <.quality_report :if={@run.report} report={@run.report} />
 
       <div id="subjects" phx-update="stream" class="space-y-4">
         <div
@@ -504,6 +518,11 @@ defmodule BilderWeb.BiometricsRunLive do
                 Ground-truth JSON (minutiae, singular points)
               </a>
             </div>
+
+            <.verification_details
+              :if={verification(@selected.record)}
+              check={verification(@selected.record)}
+            />
 
             <div>
               <h3 class="mb-1 text-xs font-medium text-base-content/50">Person</h3>

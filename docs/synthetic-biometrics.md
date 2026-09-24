@@ -10,8 +10,9 @@ Bilder generates **synthetic subjects**, fictional people, for ABIS testing. Eac
   - full and writer's palmprints of both hands
   - an FD-249 style tenprint card
 
-  These are generated procedurally by the CPU service in [`python_biometrics/`](../python_biometrics/README.md).
-  Any number of extra captures can be added for mated pairs.
+  The service in [`python_biometrics/`](../python_biometrics/README.md) synthesises the ridge patterns, renders
+  them as realistic inked prints with a diffusion model (or procedurally, as a fast CPU draft), and verifies
+  every finger and slap against its ground truth. Extra captures can be added for mated pairs.
 
 All images of one subject show the same person, the same fingers and the same palms. This implements the face
 and friction-ridge parts of [`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md). You can run it from
@@ -20,6 +21,8 @@ the command line or from the web UI at `/biometrics`.
 **Status (2026-09-23):**
 
 - Faces and friction ridges both work, from the command line and the web UI.
+- Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
+  [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - There is no S3 storage or database yet; images go to a local folder.
 - Two face changes haven't been checked on real images yet: prompt version `faces-v3` and the VAE seam fix
   (see [Qwen service changes](#qwen-service-changes)).
@@ -33,18 +36,20 @@ the command line or from the web UI at `/biometrics`.
 Run `mix phx.server`, which starts both services:
 
 - Qwen-Image-2.1 on port 8000, for faces (GPU)
-- the friction-ridge service on port 8001 (CPU)
+- the friction-ridge service on port 8001 (patterns and verification on the CPU, diffusion rendering on the GPU)
 
-The friction-ridge service needs its one-time setup first: `cd python_biometrics && ./setup.sh`. Then, in
-another terminal:
+The friction-ridge service needs its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`.
+This builds the NIST verification tools and installs the diffusion renderer; leave out `--diffusion` on a
+machine without an NVIDIA GPU and use `--renderer procedural`. Then, in another terminal:
 
 ```bash
 mix biometrics.generate --subjects 5 --seed 42                                  # default face shots
 mix biometrics.generate --shots faces,rolled,slaps,palms,card --captures 2      # everything, 2 captures
-mix biometrics.generate --shots rolled,slaps                                    # fingerprints only, no GPU
+mix biometrics.generate --shots rolled,slaps --renderer procedural              # fingerprints only, no GPU
 ```
 
-When it finishes it prints the path to a contact sheet (`index.html`).
+When it finishes it prints the friction-ridge quality report (see [Verification](#verification)) and the path
+to a contact sheet (`index.html`).
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -52,6 +57,7 @@ When it finishes it prints the path to a contact sheet (`index.html`).
 | `--seed S` | random | Run seed; every person, prompt and image seed is derived from it |
 | `--shots a,b,c` | `faces` | Shot ids and groups: `faces`, `rolled`, `slaps`, `palms`, `card` (see [Shots](#shots)) |
 | `--captures N` | 1 | Captures per finger and palm shot (max 3); captures after the first are mated pairs |
+| `--renderer R` | `diffusion` | Friction-ridge renderer: `diffusion` (realistic, GPU) or `procedural` (fast CPU draft) |
 | `--steps N` | 40 | Denoising steps for face shots |
 | `--out DIR` | `data/synthetic/biometrics` | Output root (gitignored) |
 | `--run NAME` | `<timestamp>-seed<S>` | Run folder name; reusing it resumes that run |
@@ -72,20 +78,24 @@ With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localho
   - **New run** form:
     - subjects, seed and run name
     - face shots and face steps
-    - friction-ridge groups and captures
+    - friction-ridge groups, renderer and captures
     - an estimate of images and minutes
   - The status of both services. **Start run** is disabled until the services the selection needs are ready.
   - The active run, with a progress bar, the shot being rendered, and **Cancel**.
   - All runs, newest first, including runs started with `mix biometrics.generate`.
 - **`/biometrics/<run>`**
+  - A **Friction-ridge quality** panel once the run has finished: verified, accepted, retried and rejected
+    counts, NFIQ 2 and minutiae recall per impression type, and `bozorth3` mated against non-mated scores.
   - One card per subject, with the description and sections for Face, Rolled fingers, Slaps, Palms and
     Tenprint card, plus one section per extra capture.
   - Each tile shows its thumbnail, *Rendering…*, *Queued* or *Failed*, and a code: the pose code for faces,
-    FGP for fingers, PLP for palms. Rolled fingers also show their pattern class (W, RL, LL, A, TA). Cards fill
+    FGP for fingers, PLP for palms. Rolled fingers also show their pattern class (W, RL, LL, A, TA). Verified
+    fingers and slaps show their NFIQ 2 score, marked when the image needed a retry or was rejected. Cards fill
     in live while the run is active.
   - Click a tile for the detail view: full image, size, seed and render time. Faces show the person and the
     exact prompt. Friction-ridge shots show the ground truth (pattern, singular points, minutiae count,
-    triradii) and a link to the ground-truth JSON. ←/→ moves between the subject's shots, and Esc closes it.
+    triradii), the verification results and a link to the ground-truth JSON. ←/→ moves between the subject's
+    shots, and Esc closes it.
   - **Resume** appears for runs with missing subjects or failed shots. It continues with the same seeds.
 
 Runs execute in `Bilder.Biometrics.Runner`, a single background worker, not in the page's process:
@@ -109,7 +119,8 @@ mix biometrics.generate  /  /biometrics (via Bilder.Biometrics.Runner)
        ├─ FaceAttributes.sample/2     who the person is
        ├─ FacePrompts.prompt/2        what to ask the model for (face shots)
        ├─ ImageGeneration.render/2    HTTP → python_inference/server.py   (Qwen-Image-2.1, GPU, :8000)
-       └─ FrictionRidge.render/5      HTTP → python_biometrics/server.py  (ridgegen, CPU, :8001)
+       ├─ FrictionRidge.render/5      HTTP → python_biometrics/server.py  (ridgegen + diffusion + verify, :8001)
+       └─ Report.write/2              run quality report; FrictionRidge.match/2 → bozorth3
 ```
 
 `Bilder.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
@@ -218,8 +229,15 @@ Every run records `FacePrompts.version/0` (currently `faces-v3`). Bump it whenev
 
 ## Friction ridges
 
-The CPU service in [`python_biometrics/`](../python_biometrics/README.md) generates these procedurally, in the
-style of SFinGe. It needs no model weights or GPU. Its README covers the algorithm, the API and the limitations.
+The service in [`python_biometrics/`](../python_biometrics/README.md) generates them in two stages. Its README
+covers the algorithm, the API and the limitations.
+
+1. **Identity:** SFinGe-style master patterns and per-capture geometry (placement, skin distortion, contact
+   area). This fixes the ridges and the ground truth. It runs on the CPU.
+2. **Appearance:** the `diffusion` renderer (the default) draws the capture procedurally, then runs it part-way
+   through IMPOSE's latent diffusion model for rolled prints, which was trained on real prints. That swaps
+   the drawn look for real ink texture and keeps the ridges. The `procedural` renderer skips the model: it's
+   faster, CPU only, and looks computer-generated. Palms are always procedural.
 
 | Group | Shots | Code | Size (500 ppi) |
 |---|---|---|---|
@@ -244,8 +262,33 @@ How the images relate:
 - **Marking.** Every PNG is 8-bit grey with 500 ppi DPI metadata and `Synthetic=true` text chunks. The card's
   header says "SYNTHETIC TEST DATA - NOT A REAL PERSON".
 
-The ridge images are plausible, but they aren't calibrated against real ridge statistics or checked with
-NFIQ 2. See the service README for the limitations.
+### Verification
+
+A diffusion model can move, drop or invent minutiae, and a matcher tolerates exactly that, so it can't catch it.
+The service therefore checks every finger and slap it renders (`python_biometrics/verify.py`):
+
+- NIST `mindtct` extracts minutiae from the rendered image and from the clean ridge map it was rendered from.
+  The two sets are paired within 12 px and 30°, inside the contact area.
+- **Recall** (share of the clean map's minutiae found) must be at least 0.85 and the **spurious rate** at most
+  0.15. **NFIQ 2** must be at least 35, per finger for slaps.
+- An image that fails is re-rendered with new appearance randomness (same ridges), up to 3 attempts. If none
+  passes, the best attempt is kept and marked rejected.
+- The results go into the ground-truth JSON (`verification`: metrics, attempts, the missed and spurious points,
+  the detected minutiae) and a summary into `subject.json`.
+
+At the end of a run the harness writes `report.json` (`Bilder.Biometrics.Report`):
+
+- how many images were verified, accepted, accepted after a retry, or rejected
+- NFIQ 2, recall and spurious-rate distributions per impression type
+- `bozorth3` scores of mated pairs (captures of the same finger) against non-mated pairs (the same finger of
+  different subjects), with the pairs on the wrong side of the threshold of 40 listed
+
+Baseline, 3–4 subjects with 2 captures each:
+
+| Renderer | Rolled NFIQ 2 | Plain NFIQ 2 | Minutiae recall | Accepted | Mated min / non-mated max |
+|---|---|---|---|---|---|
+| Procedural | 47 (39–56) | 54 (48–63) | 0.98 | 100% | 112 / 27 |
+| Diffusion | 46 (40–55) | 53 (45–63) | 0.92 | 99% first time, 100% after retries | 114 / 30 |
 
 ## Determinism and resuming
 
@@ -257,6 +300,7 @@ Every value is derived from the run seed:
 | Attributes and prompts | Subject seed |
 | Per-shot face image seed | `phash2({subject_seed, shot})` |
 | Finger and palm masters, captures | Subject seed, finger or palm code, capture number |
+| Rendering (procedural noise, diffusion seed) | Subject seed, shot code, capture number, attempt number |
 
 Rerunning with the same `--run` and `--seed` skips images that already exist. It regenerates missing ones with
 the same seeds, reading the anchor back from disk as the reference. If a shot fails, the error is recorded and
@@ -266,13 +310,14 @@ the run continues. If the anchor fails, that subject's other face shots are mark
 
 ```
 data/synthetic/biometrics/<run>/
-  run.json                 seed, shots, captures, steps, prompt version, subject count
+  run.json                 seed, shots, captures, renderer, steps, prompt version, subject count
+  report.json              friction-ridge quality report (verification, bozorth3 mated vs non-mated)
   index.html               contact sheet: one row per subject
   subject_001/
     subject.json           attributes, description, and per shot: pos/code, size, seed, capture,
                            prompt or ground-truth summary, status, duration_ms, error
     mugshot_frontal.png
-    rolled_01.png          rolled_01.json    (ground truth: pattern, singular points, minutiae)
+    rolled_01.png          rolled_01.json    (ground truth: pattern, singular points, minutiae, verification)
     slap_13.png            slap_13.json
     palm_21.png            palm_21.json
     tenprint_card.png      tenprint_card.json
@@ -307,7 +352,11 @@ The contact sheet is rewritten after each subject, so you can watch a run fill i
   | Finger master | 2 s |
   | Palm master | 25 s |
   | Further impression | 0.1–3 s |
-  | All 18 friction-ridge shots with 2 captures (36 images) | about 1.5 minutes per subject |
+  | All 18 friction-ridge shots with 2 captures (36 images), procedural | about 1.5 minutes per subject |
+
+  Verification adds about 1 s per finger and 2 s per slap. The diffusion renderer on the RTX 4090 adds about
+  0.3 s per rolled print (1.9 GB VRAM) and 1 s per slap (6.5 GB VRAM); the card re-renders its 13 prints, about
+  20 s. 10 rolled, 3 slaps and the card with 2 captures took about 1.8 minutes per subject.
 
 That's fine for prompt work and galleries of a few thousand subjects. Large ABIS gallery fills (100k+) would need
 a faster face generator; see the plan document.
@@ -322,8 +371,9 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
   - **Harness:**
     - face anchor conditioning
     - friction-ridge shots all come from the subject seed, and ground-truth JSON is written
+    - the renderer is passed through, and verified shots produce `report.json`
     - resume, and failure handling
-  - **Runner, runs reader, request validation and the ridge client.**
+  - **Runner, runs reader, request validation, the ridge client and the quality report.**
 - `test/bilder_web/`
   - **Both pages:** form, services, run list, sections, tiles, detail views with prompt or ground truth, resume
     and cancel.
@@ -337,6 +387,9 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
 - slap finger order, and slap fingers whose patterns match the rolled prints
 - palms and the card
 - the HTTP API, including 500 ppi and synthetic PNG metadata
+- verification: minutiae pairing, and procedural prints that pass while a different finger fails (needs the
+  NIST tools)
+- the diffusion renderer: deterministic, keeps the ridges (needs `setup.sh --diffusion` and a GPU)
 
 ## Known issues and next steps
 
@@ -349,8 +402,11 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
     - reject new subjects that are too similar to existing ones
     - reject probes that no longer match their anchor
 - **Friction ridges**
-  - Run NFIQ 2 over a sample batch, and check matcher scores between captures of the same finger (should
-    match) and different fingers (shouldn't).
+  - Next steps of [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md): acquisition styles
+    (livescan, dry, low quality) need a conditioned model; the diffusion model only knows inked rolled prints.
+  - Slaps: adjacent fingers can touch with hard seams, and the middle phalanx is a straight-edged patch. The
+    diffusion renderer makes this more visible. Render plain fingers separately and fix the layout (plan phase 3).
+  - Ground-truth minutiae angles point the opposite way from ANSI/INCITS 378 (`mindtct` differs by about 180°).
   - Add WSQ compression and ANSI/NIST-ITL Type-4/14/15 packaging.
   - Latent prints are not generated yet.
 - **Later:** the storage abstraction (local folder or S3) and the database, as described in the plan.
@@ -363,7 +419,8 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
   fingerprint: a foreign AFIS can false-match it. Keep outputs marked as synthetic, and keep them out of
   production and live-exchange systems.
 - **Licences.** Check the Qwen-Image-2.1 licence, and the licence of any future model, for your use before
-  relying on the output.
+  relying on the output. IMPOSE's code and weights are Apache 2.0; its training data isn't documented, so a
+  check that rendered prints don't reproduce real ridge detail is still open (plan section 9).
 
 ## Code map
 
@@ -379,10 +436,12 @@ The Elixir tests stub both services with `Req.Test` and write to a temporary fol
 | `lib/bilder/biometrics/run_request.ex` | Validates the web form |
 | `lib/bilder/biometrics/harness.ex` | Runs batches: seeds, face anchor and conditioned shots, ridge shots, resume, JSON, contact sheet |
 | `lib/bilder/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
-| `lib/bilder/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service |
+| `lib/bilder/biometrics/friction_ridge.ex` | HTTP client for the friction-ridge service (`render`, `match`) |
+| `lib/bilder/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
 | `lib/bilder/python_service.ex` | Supervises both Python services (`Bilder.QwenService`, `Bilder.BiometricsService`) |
 | `lib/bilder/biometrics/face_attributes.ex` | Seeded person sampling and `describe/1` |
 | `lib/bilder/biometrics/face_prompts.ex` | Shot specs, prompt templates, prompt version |
 | `lib/bilder/image_generation.ex` | Qwen HTTP client (`render/2`, `generate/2`, `health/0`) |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
+| `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |

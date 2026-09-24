@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from ridgegen import card, fingerprints, palm
+from ridgegen import impression as imp
 
 
 def test_rolled_is_deterministic_and_sized():
@@ -10,6 +11,23 @@ def test_rolled_is_deterministic_and_sized():
     assert a.shape == (750, 800) and a.dtype == np.uint8
     assert np.array_equal(a, b)
     assert meta_a == meta_b
+
+
+def test_capture_renders_the_same_image_as_rolled():
+    capture = fingerprints.rolled_capture(7, 3, 0)
+    image, meta = fingerprints.rolled(7, 3, 0)
+    assert np.array_equal(imp.render_capture(capture), image)
+    assert capture.meta == meta
+    ridge_map = capture.ridge_map()
+    assert set(np.unique(ridge_map)) == {0, 255}
+    assert (ridge_map[capture.contact <= 0.5] == 255).all()
+
+
+def test_later_attempts_change_appearance_only():
+    capture = fingerprints.rolled_capture(7, 3, 0)
+    first, again = imp.render_capture(capture, 1), imp.render_capture(fingerprints.rolled_capture(7, 3, 0), 1)
+    assert np.array_equal(first, again)
+    assert not np.array_equal(first, fingerprints.rolled(7, 3, 0)[0])
 
 
 def test_captures_share_the_pattern_but_differ():

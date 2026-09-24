@@ -28,9 +28,16 @@ THUMBS = [(6, 0.28, 120, 10), (1, 0.72, 120, -10)]
 
 
 def rolled(seed, finger, capture=0):
-    """Rolled impression of `finger` (FGP 1-10). Returns (image, meta)."""
+    """Rolled impression of `finger` (FGP 1-10), rendered procedurally. Returns (image, meta)."""
+    c = rolled_capture(seed, finger, capture)
+    return imp.render_capture(c), c.meta
+
+
+def rolled_capture(seed, finger, capture=0):
+    """The geometry and ground truth of a rolled impression, as an `impression.Capture`."""
     master = fingers.master(seed, finger)
-    rng = rng_for(seed, finger, ROLLED, capture, 7)
+    key = (seed, finger, ROLLED, capture, 7)
+    rng = rng_for(*key)
     w, h = ROLLED_SIZE
 
     scale = rng.uniform(0.86, 0.94) * min(1.0, 1.02 / master.scale)
@@ -52,8 +59,9 @@ def rolled(seed, finger, capture=0):
     contact *= np.clip(1.15 - 0.45 * xs**2, 0.35, 1)[None, :]
     contact = imp.irregular_edge(contact, rng) * inside
 
-    image = imp.render(ridges, contact, rng, creases=int(rng.integers(0, 3)))
-    return image, meta(master, ridges, contact, map_x, map_y, "rolled", capture)
+    creases = int(rng.integers(0, 3))
+    return imp.Capture(ridges, contact, meta(master, ridges, contact, map_x, map_y, "rolled", capture),
+                       rng, key, creases)
 
 
 def plain_finger(seed, finger, capture, rng, canvas=(560, 1300)):
@@ -110,14 +118,25 @@ def phalanx(seed, finger):
 
 
 def slap(seed, code, capture=0):
-    """Plain slap: 13 right four fingers, 14 left four fingers, 15 two thumbs."""
+    """Plain slap: 13 right four fingers, 14 left four fingers, 15 two thumbs.
+
+    Rendered procedurally. Returns (image, meta).
+    """
+    c = slap_capture(seed, code, capture)
+    return imp.render_capture(c), c.meta
+
+
+def slap_capture(seed, code, capture=0):
+    """The geometry and ground truth of a slap, as an `impression.Capture`."""
     layout = {13: RIGHT_FOUR, 14: LEFT_FOUR, 15: THUMBS}[code]
-    rng = rng_for(seed, code, PLAIN, capture, 11)
+    key = (seed, code, PLAIN, capture, 11)
+    rng = rng_for(*key)
     w, h = SLAP_SIZE
     ridges_all = np.zeros((h, w), np.float32)
     contact_all = np.zeros((h, w), np.float32)
     tilt = rng.normal(0, 4)
     fingers_meta = []
+    placed = []
 
     for finger, fx, top, splay, *_ in layout:
         finger_rng = rng_for(seed, finger, PLAIN, capture, code)
@@ -131,6 +150,7 @@ def slap(seed, code, capture=0):
         m[:, 2] += (cx - fw / 2, cy - 330)
         placed_ridges = cv2.warpAffine(ridges, m, (w, h), flags=cv2.INTER_LINEAR)
         placed_contact = cv2.warpAffine(contact, m, (w, h), flags=cv2.INTER_LINEAR)
+        placed.append((finger, placed_contact))
         take = placed_contact > contact_all
         ridges_all = np.where(take, placed_ridges, ridges_all)
         contact_all = np.maximum(contact_all, placed_contact)
@@ -145,15 +165,16 @@ def slap(seed, code, capture=0):
             "deltas": [apply_affine(m, p) for p in deltas],
         })
 
-    image = imp.render(ridges_all, contact_all, rng, creases=int(rng.integers(0, 4)))
+    creases = int(rng.integers(0, 4))
     points = minutiae.extract(ridges_all > 0, contact_all > 0.5)
-    return image, {
+    meta = {
         "capture": capture,
         "impression": "plain",
         "fingers": fingers_meta,
         "minutiae_count": len(points),
         "minutiae": points,
     }
+    return imp.Capture(ridges_all, contact_all, meta, rng, key, creases, fingers=placed)
 
 
 def soft_inside(master, map_x, map_y):

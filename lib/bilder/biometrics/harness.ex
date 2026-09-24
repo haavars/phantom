@@ -15,7 +15,8 @@ defmodule Bilder.Biometrics.Harness do
       <out>/<run>/index.html                 contact sheet, one row per subject
       <out>/<run>/subject_001/subject.json   attributes, prompts, seeds, timings
       <out>/<run>/subject_001/<shot>.png
-      <out>/<run>/subject_001/<shot>.json    friction-ridge ground truth (minutiae, patterns)
+      <out>/<run>/subject_001/<shot>.json    friction-ridge ground truth (minutiae, patterns, verification)
+      <out>/<run>/report.json                friction-ridge quality report, see `Bilder.Biometrics.Report`
 
   Everything is derived from the run seed, so re-running with the same `:run`
   and `:seed` skips images that already exist and regenerates missing ones
@@ -24,8 +25,11 @@ defmodule Bilder.Biometrics.Harness do
   Run it with `mix biometrics.generate`, or from IEx with `run/1`.
   """
 
-  alias Bilder.Biometrics.{FaceAttributes, FacePrompts, FrictionRidge, Runs, Shots}
+  alias Bilder.Biometrics.{FaceAttributes, FacePrompts, FrictionRidge, Report, Runs, Shots}
   alias Bilder.ImageGeneration
+
+  @renderers ~w(diffusion procedural)
+  @default_renderer "diffusion"
 
   @doc """
   Runs the harness. Options:
@@ -35,6 +39,8 @@ defmodule Bilder.Biometrics.Harness do
     * `:shots` - shot ids and group names (see `Bilder.Biometrics.Shots.expand/2`),
       defaults to `["faces"]`; the face anchor is added whenever there are face shots
     * `:captures` - captures per friction-ridge shot, defaults to 1
+    * `:renderer` - friction-ridge renderer, `"diffusion"` (realistic, GPU; the
+      default) or `"procedural"` (fast CPU draft), see `renderers/0`
     * `:steps` - denoising steps, defaults to 40
     * `:out` - output root, defaults to `Bilder.Biometrics.Runs.root/0`
     * `:run` - run directory name, defaults to `<timestamp>-seed<seed>`
@@ -42,8 +48,9 @@ defmodule Bilder.Biometrics.Harness do
     * `:on_progress` - 1-arity function called with `{:subject_started, %{id:, seed:, description:}}`,
       `{:shot, subject_id, shot_record}` and `{:subject_done, subject_record}`
 
-  Returns `{:ok, %{dir: run_dir, index: index_path, subjects: [subject_record]}}` or
-  `{:error, message}` for invalid options.
+  Returns `{:ok, %{dir: run_dir, index: index_path, subjects: [subject_record], report: report}}`
+  or `{:error, message}` for invalid options. `report` is the friction-ridge
+  quality report (`Bilder.Biometrics.Report`), nil for runs without verified images.
   """
   def run(opts \\ []) do
     with {:ok, shots} <-
@@ -58,6 +65,7 @@ defmodule Bilder.Biometrics.Harness do
         seed: seed,
         shots: shots,
         captures: Keyword.get(opts, :captures, 1),
+        renderer: Keyword.get(opts, :renderer, @default_renderer),
         steps: Keyword.get(opts, :steps, 40),
         prompt_version: FacePrompts.version(),
         subjects: Keyword.get(opts, :subjects, 3)
@@ -77,9 +85,20 @@ defmodule Bilder.Biometrics.Harness do
           done
         end)
 
-      {:ok, %{dir: run_dir, index: Path.join(run_dir, "index.html"), subjects: subjects}}
+      report = Report.write(run_dir, subjects)
+
+      {:ok,
+       %{
+         dir: run_dir,
+         index: Path.join(run_dir, "index.html"),
+         subjects: subjects,
+         report: report
+       }}
     end
   end
+
+  @doc "Friction-ridge renderers, the default first."
+  def renderers, do: @renderers
 
   @doc """
   The shot ids a run with `shots` (ids and group names, see
@@ -107,7 +126,7 @@ defmodule Bilder.Biometrics.Harness do
 
     {records, _anchor} =
       Enum.map_reduce(config.shots, nil, fn shot, anchor ->
-        record = run_shot(shot, attrs, subject_seed, anchor, dir, config.steps, force?)
+        record = run_shot(shot, attrs, subject_seed, anchor, dir, config, force?)
         on_progress.({:shot, id, record})
 
         anchor =
@@ -130,10 +149,13 @@ defmodule Bilder.Biometrics.Harness do
     subject
   end
 
-  defp run_shot(shot, attrs, subject_seed, anchor, dir, steps, force?) do
+  defp run_shot(shot, attrs, subject_seed, anchor, dir, config, force?) do
     case Shots.spec(shot) do
-      %{modality: :face} -> run_face_shot(shot, attrs, subject_seed, anchor, dir, steps, force?)
-      %{modality: :ridge} = spec -> run_ridge_shot(spec, subject_seed, dir, force?)
+      %{modality: :face} ->
+        run_face_shot(shot, attrs, subject_seed, anchor, dir, config.steps, force?)
+
+      %{modality: :ridge} = spec ->
+        run_ridge_shot(spec, subject_seed, dir, config.renderer, force?)
     end
   end
 
@@ -199,7 +221,7 @@ defmodule Bilder.Biometrics.Harness do
 
   # Fingers, slaps, palms and the tenprint card all come from the subject seed,
   # so every image of one subject shows the same fingers and palms.
-  defp run_ridge_shot(spec, subject_seed, dir, force?) do
+  defp run_ridge_shot(spec, subject_seed, dir, renderer, force?) do
     {width, height} = spec.size
     file = spec.id <> ".png"
     path = Path.join(dir, file)
@@ -231,7 +253,8 @@ defmodule Bilder.Biometrics.Harness do
 
       result =
         FrictionRidge.render(spec.kind, spec.numeric_code, subject_seed, spec.capture,
-          label: Path.basename(dir)
+          label: Path.basename(dir),
+          renderer: renderer
         )
 
       duration_ms = System.monotonic_time(:millisecond) - started
@@ -261,13 +284,22 @@ defmodule Bilder.Biometrics.Harness do
     end
   end
 
-  # The per-shot record keeps the small facts (pattern classes, counts); full
-  # minutiae lists stay in the ground-truth JSON next to the image.
+  # The per-shot record keeps the small facts (pattern classes, counts,
+  # verification scores); minutiae and drift point lists stay in the
+  # ground-truth JSON next to the image.
   defp summarize(meta) do
     meta
     |> Map.drop(["minutiae", "generator"])
     |> Map.update("fingers", nil, fn fingers ->
       Enum.map(fingers, &Map.take(&1, ["fgp", "pattern"]))
+    end)
+    |> Map.update("verification", nil, fn check ->
+      check
+      |> Map.drop(["missed", "spurious", "detected"])
+      |> Map.update("fingers", nil, fn fingers ->
+        Enum.map(fingers, &Map.take(&1, ["fgp", "nfiq2", "minutiae_recall", "minutiae_spurious"]))
+      end)
+      |> Map.reject(fn {_key, value} -> is_nil(value) end)
     end)
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end

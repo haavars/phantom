@@ -19,6 +19,15 @@ defmodule Bilder.Biometrics.FrictionRidge do
   `"palm"` (21-24) or `"card"`; `seed` identifies the synthetic person and
   `capture` (0, 1, ...) a separate capture of them.
 
+  Options: `:label` (printed on the card) and `:renderer`, `"diffusion"`
+  (realistic ink texture, GPU) or `"procedural"` (fast CPU draft, the
+  service's default). Palms are always procedural.
+
+  Fingers and slaps come back verified when the service has NBIS and NFIQ 2:
+  `meta["verification"]` holds NFIQ 2, minutiae recall and spurious rate
+  against the clean ridge map, the attempts it took and whether the image
+  was accepted.
+
   Returns `{:ok, %{image: png, width:, height:, ppi:, generator:, meta:}}` or
   `{:error, message}`.
   """
@@ -30,6 +39,12 @@ defmodule Bilder.Biometrics.FrictionRidge do
       capture: capture,
       label: Keyword.get(opts, :label, "")
     }
+
+    body =
+      case Keyword.get(opts, :renderer) do
+        nil -> body
+        renderer -> Map.put(body, :renderer, renderer)
+      end
 
     case Req.post(request(), url: "/render", json: body) do
       {:ok, %Req.Response{status: 200, body: %{"image" => image} = response}} ->
@@ -50,6 +65,28 @@ defmodule Bilder.Biometrics.FrictionRidge do
         {:error,
          "Couldn't reach the friction-ridge service at #{base_url()}. " <>
            "Make sure `python_biometrics/server.py` is running."}
+
+      {:error, exception} ->
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  @doc """
+  NBIS bozorth3 match scores for `pairs` (`{i, j}` indices into `templates`),
+  where each template is a list of `[x, y, angle, quality]` minutiae as in a
+  render's `meta["verification"]["detected"]`.
+
+  Returns `{:ok, scores}` in pair order, or `{:error, message}`.
+  """
+  def match(templates, pairs) do
+    body = %{templates: templates, pairs: Enum.map(pairs, &Tuple.to_list/1)}
+
+    case Req.post(request(), url: "/match", json: body) do
+      {:ok, %Req.Response{status: 200, body: %{"scores" => scores}}} ->
+        {:ok, scores}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, "Matching failed (HTTP #{status}): #{inspect(body)}"}
 
       {:error, exception} ->
         {:error, Exception.message(exception)}

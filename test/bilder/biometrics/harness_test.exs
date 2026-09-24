@@ -1,7 +1,7 @@
 defmodule Bilder.Biometrics.HarnessTest do
   use ExUnit.Case, async: true
 
-  import Bilder.BiometricsFixtures, only: [stub_ridge: 1]
+  import Bilder.BiometricsFixtures, only: [stub_ridge: 0, stub_ridge: 1]
 
   alias Bilder.Biometrics.Harness
 
@@ -141,6 +141,8 @@ defmodule Bilder.Biometrics.HarnessTest do
 
     # Every image of the subject comes from the same seed: same fingers.
     assert renders |> Enum.map(& &1["seed"]) |> Enum.uniq() == [subject.seed]
+    # Diffusion is the default renderer.
+    assert renders |> Enum.map(& &1["renderer"]) |> Enum.uniq() == ["diffusion"]
 
     dir = Path.join([tmp_dir, "ridge", "subject_001"])
     refute File.exists?(Path.join(dir, "mugshot_frontal.png"))
@@ -169,6 +171,23 @@ defmodule Bilder.Biometrics.HarnessTest do
     refute Map.has_key?(record["meta"], "minutiae")
   end
 
+  test "passes the renderer to the service and records it", %{tmp_dir: tmp_dir} do
+    stub_ridge(notify: self())
+
+    opts = [
+      out: tmp_dir,
+      run: "draft",
+      seed: 5,
+      subjects: 1,
+      shots: ["rolled_04"],
+      renderer: "procedural"
+    ]
+
+    assert {:ok, _result} = Harness.run(opts)
+    assert_received {:ridge_render, %{"renderer" => "procedural"}}
+    assert {:ok, %{renderer: "procedural"}} = Bilder.Biometrics.Runs.summary("draft", tmp_dir)
+  end
+
   test "resuming keeps the ground truth of existing friction-ridge shots", %{tmp_dir: tmp_dir} do
     stub_ridge(notify: self())
     opts = [out: tmp_dir, run: "ridge-resume", seed: 5, subjects: 1, shots: ["rolled_04"]]
@@ -181,5 +200,68 @@ defmodule Bilder.Biometrics.HarnessTest do
 
     assert %{status: "existing", ground_truth: "rolled_04.json", meta: %{"pattern" => "whorl"}} =
              record
+  end
+
+  test "writes a quality report for verified friction-ridge shots", %{tmp_dir: tmp_dir} do
+    stub_ridge()
+
+    assert {:ok, %{report: report}} =
+             Harness.run(
+               out: tmp_dir,
+               run: "report",
+               seed: 5,
+               subjects: 2,
+               shots: ["rolled_02", "rolled_05", "rolled_07"],
+               captures: 2
+             )
+
+    # Finger 5 is accepted on a retry and finger 7 rejected (see stub_ridge/1).
+    assert %{"verified" => 12, "accepted" => 4, "retried" => 4, "rejected" => 4} =
+             report["verification"]
+
+    assert %{"count" => 12, "min" => 52, "max" => 57} =
+             report["verification"]["by_impression"]["rolled"]["nfiq2"]
+
+    # Mated: each finger's two captures, per subject. Non-mated: each finger across subjects.
+    assert %{
+             "mated" => %{"count" => 6, "min" => 250},
+             "non_mated" => %{"count" => 3, "max" => 10},
+             "false_non_matches" => 0,
+             "false_matches" => 0
+           } = report["matching"]
+
+    run_dir = Path.join(tmp_dir, "report")
+    assert Bilder.Biometrics.Report.read(run_dir) == report
+    assert {:ok, %{report: ^report}} = Bilder.Biometrics.Runs.summary("report", tmp_dir)
+
+    # The shot record keeps the scores; the minutiae lists stay in the ground truth.
+    [record | _] =
+      Path.join([run_dir, "subject_001", "subject.json"])
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.get("shots")
+
+    assert %{"nfiq2" => 52, "accepted" => true} = check = record["meta"]["verification"]
+    refute Map.has_key?(check, "detected")
+
+    ground_truth =
+      Path.join([run_dir, "subject_001", "rolled_02.json"]) |> File.read!() |> Jason.decode!()
+
+    assert length(ground_truth["verification"]["detected"]) == 2
+  end
+
+  test "runs without verified images get no report", %{tmp_dir: tmp_dir} do
+    stub_service(self())
+
+    assert {:ok, %{report: nil}} =
+             Harness.run(
+               out: tmp_dir,
+               run: "faces",
+               seed: 5,
+               subjects: 1,
+               shots: ["mugshot_left_profile"]
+             )
+
+    refute File.exists?(Path.join([tmp_dir, "faces", "report.json"]))
   end
 end

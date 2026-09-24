@@ -107,6 +107,26 @@ defmodule BilderWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#shot-prompt")
   end
 
+  test "shows the quality report and each shot's verification", %{conn: conn, tmp_dir: root} do
+    run = create_run(root, run: "verified-run", subjects: 1, shots: ["rolled"])
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+
+    # 10 fingers: finger 5 accepted on a retry and finger 7 rejected (see stub_ridge/1).
+    assert has_element?(view, "#report-verified", "10")
+    assert has_element?(view, "#report-accepted", "8")
+    assert has_element?(view, "#report-retried", "1")
+    assert has_element?(view, "#report-rejected", "1")
+    assert has_element?(view, "#report-impressions", "rolled")
+    # One subject with one capture: no mated or non-mated pairs.
+    assert has_element?(view, "#report-matching", "Needs rolled fingers")
+    assert has_element?(view, "#tile-subject_001-rolled_07", "57")
+
+    view |> element("#tile-subject_001-rolled_07 a") |> render_click()
+    assert has_element?(view, "#verification-status", "Rejected")
+    assert has_element?(view, "#verification", "97%")
+  end
+
   test "opens a face shot of the subject that is still rendering", %{conn: conn, tmp_dir: root} do
     test_pid = self()
 

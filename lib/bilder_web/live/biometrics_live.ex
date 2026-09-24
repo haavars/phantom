@@ -158,6 +158,9 @@ defmodule BilderWeb.BiometricsLive do
       (not needs.ridge or services.ridge == :ready)
   end
 
+  defp renderer_note("procedural"), do: "procedural · CPU"
+  defp renderer_note(_diffusion), do: "diffusion · GPU"
+
   defp service_name(:face), do: "Qwen-Image-2.1 (faces)"
   defp service_name(:ridge), do: "Friction-ridge service (fingers, palms)"
 
@@ -183,7 +186,8 @@ defmodule BilderWeb.BiometricsLive do
           <h1 class="text-2xl font-semibold tracking-tight">Synthetic biometrics</h1>
           <p class="mt-1 max-w-2xl text-sm text-base-content/70">
             Fictional people with mugshots, ICAO portraits and mated probes (Qwen-Image-2.1), plus
-            rolled fingerprints, slaps, palmprints and tenprint cards (procedural ridge synthesis).
+            rolled fingerprints, slaps, palmprints and tenprint cards (synthetic ridge patterns,
+            rendered as realistic ink prints and checked against their ground truth).
             All images of one subject show the same person, fingers and palms.
           </p>
         </div>
@@ -269,7 +273,9 @@ defmodule BilderWeb.BiometricsLive do
             <fieldset class="border-t border-base-300 pt-4">
               <legend class="mb-2 flex w-full items-center justify-between text-sm font-medium">
                 <span>Friction ridge</span>
-                <span class="text-xs font-normal text-base-content/50">procedural · CPU · 500 ppi</span>
+                <span class="text-xs font-normal text-base-content/50">
+                  {renderer_note(@form[:renderer].value)} · 500 ppi
+                </span>
               </legend>
               <div class="space-y-0.5">
                 <label
@@ -291,11 +297,17 @@ defmodule BilderWeb.BiometricsLive do
                   </span>
                 </label>
               </div>
-              <div class="mt-2">
+              <div class="mt-2 grid grid-cols-2 gap-3">
+                <.input
+                  field={@form[:renderer]}
+                  type="select"
+                  label="Renderer"
+                  options={[{"Diffusion", "diffusion"}, {"Procedural (draft)", "procedural"}]}
+                />
                 <.input
                   field={@form[:captures]}
                   type="select"
-                  label="Captures per finger and palm"
+                  label="Captures"
                   options={
                     Enum.map(
                       1..Shots.max_captures(),

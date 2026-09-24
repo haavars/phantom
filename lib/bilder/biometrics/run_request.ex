@@ -8,7 +8,7 @@ defmodule Bilder.Biometrics.RunRequest do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Bilder.Biometrics.{FacePrompts, Runs, Shots}
+  alias Bilder.Biometrics.{FacePrompts, Harness, Runs, Shots}
 
   @max_subjects 100
   @steps [20, 30, 40, 50]
@@ -23,6 +23,7 @@ defmodule Bilder.Biometrics.RunRequest do
       default: FacePrompts.default_shots() ++ ~w(rolled slaps palms card)
 
     field :captures, :integer, default: 1
+    field :renderer, :string, default: "diffusion"
     field :run, :string
   end
 
@@ -31,7 +32,7 @@ defmodule Bilder.Biometrics.RunRequest do
 
   def changeset(request \\ %__MODULE__{}, attrs) do
     request
-    |> cast(attrs, [:subjects, :seed, :steps, :shots, :captures, :run])
+    |> cast(attrs, [:subjects, :seed, :steps, :shots, :captures, :renderer, :run])
     # The form sends an empty value so unticking every box still submits `shots`.
     |> update_change(:shots, fn shots -> Enum.reject(shots, &(&1 == "")) end)
     |> validate_required([:subjects, :steps])
@@ -50,6 +51,7 @@ defmodule Bilder.Biometrics.RunRequest do
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: Shots.max_captures()
     )
+    |> validate_inclusion(:renderer, Harness.renderers())
     |> validate_length(:run, max: 80)
     |> validate_format(:run, ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/,
       message: "use letters, digits, dots, dashes and underscores"
@@ -66,6 +68,7 @@ defmodule Bilder.Biometrics.RunRequest do
       steps: request.steps,
       shots: request.shots,
       captures: request.captures,
+      renderer: request.renderer,
       seed: request.seed,
       run: request.run
     ]

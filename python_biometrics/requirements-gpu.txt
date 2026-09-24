@@ -1,0 +1,9 @@
+# Optional: the diffusion renderer (diffusion.py). Installed by `./setup.sh --diffusion`,
+# with torch from the CUDA index. IMPOSE's ldm code needs the rest.
+torch>=2.4
+torchvision
+pytorch_lightning>=2.0,<2.6
+omegaconf
+einops
+tqdm
+gdown

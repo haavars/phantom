@@ -8,6 +8,8 @@ defmodule BilderWeb.BiometricsComponents do
     router: BilderWeb.Router,
     statics: BilderWeb.static_paths()
 
+  import BilderWeb.CoreComponents, only: [icon: 1]
+
   alias Bilder.Biometrics.{FacePrompts, Shots}
 
   @face_descriptions %{
@@ -172,7 +174,10 @@ defmodule BilderWeb.BiometricsComponents do
       |> assign(:ridge?, spec.modality == :ridge)
       |> assign(:width, tile_width(spec.group, w, h))
 
-    assigns = assign(assigns, :pattern, assigns.record && pattern_code(assigns.record))
+    assigns =
+      assigns
+      |> assign(:pattern, assigns.record && pattern_code(assigns.record))
+      |> assign(:check, assigns.record && verification(assigns.record))
 
     ~H"""
     <figure id={"tile-#{@subject.id}-#{@shot}"} class={["shrink-0", @width]}>
@@ -181,7 +186,8 @@ defmodule BilderWeb.BiometricsComponents do
           <.link
             patch={~p"/biometrics/#{@run}?#{[subject: @subject.id, shot: @shot]}"}
             class={[
-              "group relative block overflow-hidden rounded-xl ring-1 ring-base-300 transition hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+              "group relative block overflow-hidden rounded-xl ring-1 transition hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+              if(@check && @check["accepted"] == false, do: "ring-error/60", else: "ring-base-300"),
               if(@ridge?, do: "bg-white", else: "bg-base-200")
             ]}
             style={@aspect}
@@ -195,6 +201,7 @@ defmodule BilderWeb.BiometricsComponents do
                 if(@ridge?, do: "object-contain", else: "object-cover")
               ]}
             />
+            <.verification_chip :if={@check} check={@check} />
           </.link>
         <% @record -> %>
           <div
@@ -269,4 +276,414 @@ defmodule BilderWeb.BiometricsComponents do
 
   defp pos(%{pos: pos}, _shot) when is_binary(pos), do: pos
   defp pos(_record, shot), do: (Shots.spec(shot) || %{code: nil}).code
+
+  @doc "A friction-ridge record's verification summary (NFIQ 2, minutiae recall, ...), or nil."
+  def verification(%{meta: %{"verification" => %{} = check}}), do: check
+  def verification(_record), do: nil
+
+  @doc "`:accepted`, `:retried` (accepted after re-rendering) or `:rejected`."
+  def verification_status(%{"accepted" => false}), do: :rejected
+  def verification_status(%{"attempts" => attempts}) when attempts > 1, do: :retried
+  def verification_status(_check), do: :accepted
+
+  def percent(nil), do: "–"
+  def percent(ratio), do: "#{round(ratio * 100)}%"
+
+  def number(nil), do: "–"
+  def number(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
+  def number(value), do: to_string(value)
+
+  attr :check, :map, required: true
+
+  @doc "NFIQ 2 and verification state, overlaid on a friction-ridge thumbnail."
+  def verification_chip(assigns) do
+    assigns = assign(assigns, :status, verification_status(assigns.check))
+
+    ~H"""
+    <span
+      class={[
+        "absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold shadow-sm ring-1 backdrop-blur-sm",
+        @status == :rejected && "bg-error text-error-content ring-error",
+        @status == :retried && "bg-base-100/90 text-base-content ring-warning/60",
+        @status == :accepted && "bg-base-100/90 text-base-content/70 ring-base-300"
+      ]}
+      title={chip_title(@check, @status)}
+    >
+      <.icon :if={@status == :rejected} name="hero-x-circle-mini" class="size-3" />
+      <.icon :if={@status == :retried} name="hero-arrow-path-mini" class="size-3 text-warning" />
+      {@check["nfiq2"] || "–"}
+    </span>
+    """
+  end
+
+  defp chip_title(check, status) do
+    state =
+      case status do
+        :rejected -> "Rejected after #{check["attempts"]} attempts"
+        :retried -> "Accepted on attempt #{check["attempts"]}"
+        :accepted -> "Accepted"
+      end
+
+    "#{state} · NFIQ 2 #{check["nfiq2"] || "–"} · minutiae recall #{percent(check["minutiae_recall"])}"
+  end
+
+  attr :check, :map, required: true
+  attr :ground_truth_url, :string, default: nil
+
+  @doc "The verification section of the shot detail view."
+  def verification_details(assigns) do
+    assigns = assign(assigns, :status, verification_status(assigns.check))
+
+    ~H"""
+    <div id="verification" class="space-y-2 text-xs">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="font-medium text-base-content/50">Verification</h3>
+        <span
+          id="verification-status"
+          class={[
+            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
+            @status == :accepted && "bg-success/15 text-base-content",
+            @status == :retried && "bg-warning/15 text-base-content",
+            @status == :rejected && "bg-error/15 text-base-content"
+          ]}
+        >
+          <.icon
+            name={
+              case @status do
+                :accepted -> "hero-check-circle-mini"
+                :retried -> "hero-arrow-path-mini"
+                :rejected -> "hero-x-circle-mini"
+              end
+            }
+            class={[
+              "size-3.5",
+              @status == :accepted && "text-success",
+              @status == :retried && "text-warning",
+              @status == :rejected && "text-error"
+            ]}
+          />
+          {case @status do
+            :accepted -> "Accepted"
+            :retried -> "Accepted on attempt #{@check["attempts"]}"
+            :rejected -> "Rejected"
+          end}
+        </span>
+      </div>
+      <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
+        <dt class="text-base-content/50">NFIQ 2</dt>
+        <dd class="font-mono">{@check["nfiq2"] || "–"}</dd>
+        <dt class="text-base-content/50" title="Share of the clean map's minutiae found in the image">
+          Minutiae recall
+        </dt>
+        <dd class="font-mono">{percent(@check["minutiae_recall"])}</dd>
+        <dt class="text-base-content/50" title="Share of the image's minutiae not in the clean map">
+          Spurious minutiae
+        </dt>
+        <dd class="font-mono">{percent(@check["minutiae_spurious"])}</dd>
+        <dt class="text-base-content/50">Mean displacement</dt>
+        <dd class="font-mono">{number(@check["mean_displacement_px"])} px</dd>
+        <dt class="text-base-content/50">Renderer</dt>
+        <dd>{@check["renderer"]}</dd>
+        <dt class="text-base-content/50">Attempts</dt>
+        <dd>{@check["attempts"] || 1}</dd>
+      </dl>
+      <table :if={@check["fingers"]} class="w-full text-left">
+        <thead class="text-base-content/50">
+          <tr>
+            <th class="py-1 font-normal">Finger</th>
+            <th class="py-1 text-right font-normal">NFIQ 2</th>
+            <th class="py-1 text-right font-normal">Recall</th>
+            <th class="py-1 text-right font-normal">Spurious</th>
+          </tr>
+        </thead>
+        <tbody class="font-mono">
+          <tr :for={finger <- @check["fingers"]} class="border-t border-base-200">
+            <td class="py-1 font-sans">{finger_label(finger["fgp"])}</td>
+            <td class="py-1 text-right">{finger["nfiq2"] || "–"}</td>
+            <td class="py-1 text-right">{percent(finger["minutiae_recall"])}</td>
+            <td class="py-1 text-right">{percent(finger["minutiae_spurious"])}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="text-base-content/50">
+        Minutiae found by NIST mindtct in the image, compared with the clean ridge map it was
+        rendered from. The ground-truth JSON lists the missed and spurious points.
+      </p>
+    </div>
+    """
+  end
+
+  defp finger_label(fgp) when is_integer(fgp),
+    do: Shots.label("rolled_" <> String.pad_leading(Integer.to_string(fgp), 2, "0"))
+
+  defp finger_label(_fgp), do: "–"
+
+  attr :report, :map, required: true
+
+  @doc """
+  A run's friction-ridge quality report (see `Bilder.Biometrics.Report`):
+  verification outcomes, NFIQ 2 and recall per impression type, and bozorth3
+  mated against non-mated scores.
+  """
+  def quality_report(assigns) do
+    report = assigns.report
+    verification = report["verification"] || %{}
+
+    assigns =
+      assigns
+      |> assign(:verification, verification)
+      |> assign(:impressions, Enum.sort(verification["by_impression"] || %{}))
+      |> assign(:matching, report["matching"])
+      |> assign(:threshold, report["threshold"] || 40)
+
+    ~H"""
+    <section
+      id="quality-report"
+      class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
+      aria-labelledby="quality-report-title"
+    >
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="quality-report-title" class="text-sm font-semibold">Friction-ridge quality</h2>
+        <p class="text-xs text-base-content/50">
+          NFIQ 2 · minutiae checked against the clean ridge map · bozorth3 match threshold {@threshold}
+        </p>
+      </div>
+
+      <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <.stat_tile id="report-verified" label="Verified" value={@verification["verified"]} />
+        <.stat_tile
+          id="report-accepted"
+          label="Accepted"
+          value={@verification["accepted"]}
+          icon="hero-check-circle-mini"
+          tone="text-success"
+        />
+        <.stat_tile
+          id="report-retried"
+          label="Accepted after retry"
+          value={@verification["retried"]}
+          icon="hero-arrow-path-mini"
+          tone="text-warning"
+        />
+        <.stat_tile
+          id="report-rejected"
+          label="Rejected"
+          value={@verification["rejected"]}
+          icon="hero-x-circle-mini"
+          tone="text-error"
+        />
+      </div>
+
+      <div class="mt-4 grid gap-6 lg:grid-cols-2">
+        <div class="overflow-x-auto">
+          <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-base-content/50">
+            Per impression
+          </h3>
+          <table id="report-impressions" class="w-full text-left text-xs">
+            <thead class="text-base-content/50">
+              <tr>
+                <th class="py-1 pr-3 font-normal">Impression</th>
+                <th class="py-1 pr-3 text-right font-normal">Images</th>
+                <th class="py-1 pr-3 text-right font-normal">NFIQ 2 mean</th>
+                <th class="py-1 pr-3 text-right font-normal">range</th>
+                <th class="py-1 pr-3 text-right font-normal">Recall</th>
+                <th class="py-1 text-right font-normal">Spurious</th>
+              </tr>
+            </thead>
+            <tbody class="font-mono">
+              <tr :for={{impression, row} <- @impressions} class="border-t border-base-200">
+                <td class="py-1.5 pr-3 font-sans capitalize">{impression}</td>
+                <td class="py-1.5 pr-3 text-right">{row["count"]}</td>
+                <td class="py-1.5 pr-3 text-right">{number(row["nfiq2"]["mean"])}</td>
+                <td class="py-1.5 pr-3 text-right text-base-content/60">
+                  {row["nfiq2"]["min"] || "–"}–{row["nfiq2"]["max"] || "–"}
+                </td>
+                <td class="py-1.5 pr-3 text-right">{percent(row["minutiae_recall"]["mean"])}</td>
+                <td class="py-1.5 text-right">{percent(row["minutiae_spurious"]["mean"])}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="report-matching">
+          <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-base-content/50">
+            Mated vs non-mated (rolled)
+          </h3>
+          <%= cond do %>
+            <% is_nil(@matching) -> %>
+              <p class="text-xs text-base-content/60">
+                Needs rolled fingers from two or more captures (mated) or subjects (non-mated).
+              </p>
+            <% @matching["error"] -> %>
+              <p class="text-xs text-error">{@matching["error"]}</p>
+            <% true -> %>
+              <.score_strip
+                matching={@matching}
+                threshold={@threshold}
+                scale={score_scale(@matching, @threshold)}
+              />
+              <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/70">
+                <span id="report-false-non-matches">
+                  <.icon
+                    name={
+                      if(@matching["false_non_matches"] > 0,
+                        do: "hero-exclamation-triangle-mini",
+                        else: "hero-check-circle-mini"
+                      )
+                    }
+                    class={[
+                      "size-3.5 align-[-2px]",
+                      if(@matching["false_non_matches"] > 0,
+                        do: "text-warning",
+                        else: "text-success"
+                      )
+                    ]}
+                  />
+                  {@matching["false_non_matches"]} mated below {@threshold}
+                </span>
+                <span id="report-false-matches">
+                  <.icon
+                    name={
+                      if(@matching["false_matches"] > 0,
+                        do: "hero-exclamation-triangle-mini",
+                        else: "hero-check-circle-mini"
+                      )
+                    }
+                    class={[
+                      "size-3.5 align-[-2px]",
+                      if(@matching["false_matches"] > 0, do: "text-warning", else: "text-success")
+                    ]}
+                  />
+                  {@matching["false_matches"]} non-mated at or above {@threshold}
+                </span>
+              </p>
+              <details
+                :if={@matching["collisions"] != [] or @matching["weak_mates"] != []}
+                class="mt-2 text-xs"
+              >
+                <summary class="cursor-pointer text-base-content/60 transition hover:text-base-content">
+                  Pairs on the wrong side of the threshold
+                </summary>
+                <ul class="mt-1 space-y-0.5 font-mono text-base-content/70">
+                  <li :for={pair <- @matching["collisions"] || []}>
+                    non-mated {pair["a"]} × {pair["b"]}: {pair["score"]}
+                  </li>
+                  <li :for={pair <- @matching["weak_mates"] || []}>
+                    mated {pair["a"]} × {pair["b"]}: {pair["score"]}
+                  </li>
+                </ul>
+              </details>
+          <% end %>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :icon, :string, default: nil
+  attr :tone, :string, default: nil
+
+  defp stat_tile(assigns) do
+    ~H"""
+    <div id={@id} class="rounded-xl bg-base-200/60 px-3 py-2">
+      <p class="flex items-center gap-1 text-xs text-base-content/60">
+        <.icon :if={@icon} name={@icon} class={["size-3.5", @tone]} />
+        {@label}
+      </p>
+      <p class="mt-0.5 font-mono text-xl font-semibold tabular-nums">{@value || 0}</p>
+    </div>
+    """
+  end
+
+  attr :matching, :map, required: true
+  attr :threshold, :integer, required: true
+  attr :scale, :integer, required: true
+
+  # Two range bars (min to max, with the median marked) on one score axis, and
+  # the match threshold as a dashed line across both.
+  defp score_strip(assigns) do
+    ~H"""
+    <div class="relative space-y-2" role="img" aria-label={strip_label(@matching)}>
+      <.score_range
+        :for={
+          {key, label, tone} <- [
+            {"mated", "Mated", "bg-primary"},
+            {"non_mated", "Non-mated", "bg-base-content/40"}
+          ]
+        }
+        label={label}
+        stats={@matching[key]}
+        scale={@scale}
+        tone={tone}
+      />
+      <div
+        class="pointer-events-none absolute inset-y-0 border-l border-dashed border-base-content/50"
+        style={"left: calc(6.5rem + (100% - 12.5rem) * #{Float.round(@threshold / @scale, 4)})"}
+        title={"Threshold #{@threshold}"}
+      >
+      </div>
+      <div class="flex justify-between pl-[6.5rem] pr-24 font-mono text-[10px] text-base-content/40">
+        <span>0</span><span>{@scale}</span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :stats, :map, required: true
+  attr :scale, :integer, required: true
+  attr :tone, :string, required: true
+
+  defp score_range(assigns) do
+    ~H"""
+    <div
+      class="flex items-center text-xs"
+      title={"#{@label}: #{@stats["count"]} pairs, min #{@stats["min"]}, median #{@stats["median"]}, max #{@stats["max"]}"}
+    >
+      <span class="w-[6.5rem] shrink-0 text-base-content/70">
+        {@label} <span class="text-base-content/40">({@stats["count"]})</span>
+      </span>
+      <div class="relative h-4 flex-1 rounded bg-base-200">
+        <%= if @stats["count"] > 0 do %>
+          <div
+            class={["absolute inset-y-1 rounded", @tone]}
+            style={"left: #{pct(@stats["min"], @scale)}; width: max(3px, #{pct(@stats["max"] - @stats["min"], @scale)})"}
+          >
+          </div>
+          <div
+            class="absolute inset-y-0 w-0.5 rounded bg-base-content"
+            style={"left: #{pct(@stats["median"], @scale)}"}
+          >
+          </div>
+        <% end %>
+      </div>
+      <span class="w-24 shrink-0 text-right font-mono text-base-content/70">
+        <%= if @stats["count"] > 0 do %>
+          {@stats["min"]}–{@stats["max"]}
+        <% else %>
+          –
+        <% end %>
+      </span>
+    </div>
+    """
+  end
+
+  defp pct(value, scale), do: "#{Float.round(min(value / scale, 1.0) * 100, 2)}%"
+
+  defp score_scale(matching, threshold) do
+    top =
+      Enum.max([threshold * 2 | Enum.map(["mated", "non_mated"], &(matching[&1]["max"] || 0))])
+
+    # Round up to a tidy number for the axis end label.
+    step = if top > 200, do: 100, else: 20
+    div(top + step - 1, step) * step
+  end
+
+  defp strip_label(matching) do
+    "Mated scores #{matching["mated"]["min"]} to #{matching["mated"]["max"]}, " <>
+      "non-mated #{matching["non_mated"]["min"]} to #{matching["non_mated"]["max"]}"
+  end
 end

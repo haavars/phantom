@@ -14,7 +14,8 @@ defmodule Bilder.Biometrics.RunRequestTest do
              subjects: 2,
              steps: 40,
              shots: request.shots,
-             captures: 1
+             captures: 1,
+             renderer: "diffusion"
            ]
   end
 
@@ -37,10 +38,11 @@ defmodule Bilder.Biometrics.RunRequestTest do
                "subjects" => "0",
                "steps" => "35",
                "shots" => ["selfie"],
+               "renderer" => "crayon",
                "run" => "../escape"
              })
 
     errors = Map.new(changeset.errors, fn {field, _error} -> {field, true} end)
-    assert %{subjects: true, steps: true, shots: true, run: true} = errors
+    assert %{subjects: true, steps: true, shots: true, renderer: true, run: true} = errors
   end
 end

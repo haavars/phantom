@@ -9,6 +9,8 @@ defmodule Bilder.Biometrics.Runs do
   so callers can treat live progress and finished runs the same way.
   """
 
+  alias Bilder.Biometrics.Report
+
   @name_format ~r/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/
 
   @doc "The output root, `config :bilder, :biometrics_output_dir`."
@@ -40,9 +42,11 @@ defmodule Bilder.Biometrics.Runs do
   end
 
   @doc """
-  Summary of one run: `:id`/`:name`, `:seed`, `:shots`, `:steps`, `:prompt_version`,
+  Summary of one run: `:id`/`:name`, `:seed`, `:shots`, `:steps`, `:renderer`, `:prompt_version`,
   `:subjects` (planned), `:completed` (subjects written), `:cover` (the first
-  subject's anchor file, as `{subject_id, file}`, or `nil`) and `:updated_at` (unix seconds).
+  subject's anchor file, as `{subject_id, file}`, or `nil`), `:report` (the
+  friction-ridge quality report, see `Bilder.Biometrics.Report`, or `nil`) and
+  `:updated_at` (unix seconds).
   """
   def summary(name, root \\ root()) do
     with true <- valid_name?(name),
@@ -59,10 +63,13 @@ defmodule Bilder.Biometrics.Runs do
          shots: config["shots"] || [],
          steps: config["steps"],
          captures: config["captures"] || 1,
+         # Runs from before the diffusion renderer were procedural.
+         renderer: config["renderer"] || "procedural",
          prompt_version: config["prompt_version"],
          subjects: config["subjects"] || 0,
          completed: length(subject_ids),
          cover: cover(dir, subject_ids),
+         report: Report.read(dir),
          updated_at: updated_at(dir)
        }}
     else
