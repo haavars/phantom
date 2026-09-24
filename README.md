@@ -1,9 +1,9 @@
 # Phantom
 
-A Phoenix LiveView app for generating images locally with
-[Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1): type a prompt (optionally with reference
-images to generate from/with), watch it generate, view the result. No external API keys — inference runs on
-your own GPU via a small local Python service that this app starts and manages for you.
+A Phoenix LiveView app that generates synthetic biometric test data: fictional people with consistent faces,
+fingerprints, palmprints and tenprint cards, for testing ABIS and other biometric systems. No external API
+keys. Faces come from [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) and friction ridges from
+a local ridge generator, both running as small local Python services that this app starts and manages for you.
 
 ## Setup
 
@@ -24,8 +24,8 @@ your own GPU via a small local Python service that this app starts and manages f
    ```
 
    `mix phx.server` also starts `python_inference/server.py` for you (see `Phantom.PythonService`) and stops it
-   on shutdown. Visit [`localhost:4000`](http://localhost:4000) — the page shows "starting up" while the
-   model loads (first run downloads it, which takes a while), then enter a prompt and hit Generate.
+   on shutdown. Visit [`localhost:4000`](http://localhost:4000), which opens the biometrics page. The first
+   run downloads the face model, which takes a while.
 
 If the inference service runs on another machine instead, set `QWEN_AUTOSTART=false` so this app doesn't
 also try to start its own copy, and point it at the other one:
@@ -36,7 +36,7 @@ QWEN_AUTOSTART=false QWEN_SERVICE_URL=http://your-host:8000 mix phx.server
 
 ## Synthetic biometrics
 
-Phantom also generates synthetic subjects, fictional people, for ABIS testing:
+Each run generates synthetic subjects, fictional people:
 
 - **Faces:** mugshots, ICAO portraits and mated probe images, from Qwen-Image-2.1.
 - **Friction ridges:** rolled fingerprints, slaps, full and writer's palms, and an FD-249 style tenprint card,

@@ -21,14 +21,14 @@ defmodule PhantomWeb.GenerateLiveTest do
   end
 
   test "renders the prompt form", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live_isolated(conn, PhantomWeb.GenerateLive)
 
     assert html =~ "Phantom"
     assert html =~ ~s(id="generate-form")
   end
 
   test "shows an error when submitting a blank prompt", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_isolated(conn, PhantomWeb.GenerateLive)
 
     html =
       view
@@ -54,7 +54,7 @@ defmodule PhantomWeb.GenerateLiveTest do
       end
     end)
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_isolated(conn, PhantomWeb.GenerateLive)
 
     # The self-sent :check_service_status message (from mount) is enqueued
     # in the view's mailbox before `live/2` above even returns, so this
@@ -101,7 +101,7 @@ defmodule PhantomWeb.GenerateLiveTest do
       end
     end)
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_isolated(conn, PhantomWeb.GenerateLive)
     refute render(view) =~ "disabled"
 
     reference =
@@ -129,7 +129,7 @@ defmodule PhantomWeb.GenerateLiveTest do
   end
 
   test "shows an error for oversized reference images", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_isolated(conn, PhantomWeb.GenerateLive)
     refute render(view) =~ "disabled"
 
     too_big = :binary.copy(<<0>>, 16_000_000)
