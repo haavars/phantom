@@ -199,22 +199,83 @@ defmodule Phantom.Biometrics.FaceAttributes do
     "prominent dark circles under the eyes"
   ]
 
-  # Kept clearly distinct in colour and type, because probe prompts swap in a
-  # different item from this list and near-duplicates read as "no change".
-  @clothing [
-    "a plain grey crew-neck t-shirt",
-    "a plain black t-shirt",
-    "a plain white t-shirt",
-    "a dark blue hooded sweatshirt",
-    "a red and black checked flannel shirt",
-    "an olive green bomber jacket over a black t-shirt",
-    "a mustard-yellow knitted jumper",
-    "a denim jacket over a white t-shirt",
-    "a burgundy sweatshirt",
-    "a light blue button-up shirt"
+  # Everyday clothes, as `{description, main colour}`: for anyone, then for
+  # women and for men. A person is sampled from the ones for anyone and for
+  # their sex. The colour is what shows most in a head-and-shoulders photo;
+  # probe prompts swap in an item of another colour, since a near-duplicate
+  # reads as "no change".
+  @clothing_any [
+    {"a plain grey crew-neck t-shirt", "grey"},
+    {"a plain black t-shirt", "black"},
+    {"a plain white t-shirt", "white"},
+    {"a dark blue hooded sweatshirt", "navy"},
+    {"a red and black checked flannel shirt", "red"},
+    {"an olive green bomber jacket over a black t-shirt", "olive"},
+    {"a mustard-yellow knitted jumper", "yellow"},
+    {"a denim jacket over a white t-shirt", "denim"},
+    {"a burgundy sweatshirt", "burgundy"},
+    {"a light blue button-up shirt", "light blue"},
+    {"a charcoal zip-up fleece", "charcoal"},
+    {"a bright orange high-visibility work jacket", "orange"},
+    {"a beige trench coat over a dark jumper", "beige"},
+    {"a forest green rain jacket with the hood down", "green"}
   ]
 
-  def clothing, do: @clothing
+  @clothing_female [
+    {"a white blouse with a small rounded collar", "white"},
+    {"a floral summer dress with thin straps", "floral"},
+    {"a fitted black V-neck top", "black"},
+    {"a pale pink knitted cardigan over a white top", "pink"},
+    {"a navy blazer over a cream silk blouse", "navy"},
+    {"a red ribbed turtleneck jumper", "red"},
+    {"a striped navy-and-white Breton top", "striped"},
+    {"a lilac hooded sweatshirt", "lilac"},
+    {"an emerald green satin blouse", "emerald"},
+    {"a camel wool coat with the collar turned up", "camel"},
+    {"a light denim shirt dress", "denim"},
+    {"a mustard off-the-shoulder knit top", "yellow"}
+  ]
+
+  @clothing_male [
+    {"a navy polo shirt", "navy"},
+    {"a white dress shirt with an open collar", "white"},
+    {"a grey suit jacket over a white shirt and no tie", "grey"},
+    {"a black leather biker jacket", "black"},
+    {"a green and white football shirt", "green"},
+    {"a brown corduroy jacket over a checked shirt", "brown"},
+    {"a dark green quilted gilet over a grey t-shirt", "olive"},
+    {"a maroon V-neck jumper over a collared shirt", "burgundy"},
+    {"a blue work shirt with the sleeves rolled up", "blue"},
+    {"a black tracksuit top with white stripes on the shoulders", "black"},
+    {"a tan canvas work jacket", "tan"},
+    {"a sky-blue pinstriped shirt", "light blue"}
+  ]
+
+  @all_clothing @clothing_any ++ @clothing_female ++ @clothing_male
+
+  @doc "Every clothing item."
+  def clothing, do: Enum.map(@all_clothing, &elem(&1, 0))
+
+  @doc "The clothes a person of `sex` is sampled from: the ones for anyone, then theirs."
+  def clothing(:female), do: Enum.map(@clothing_any ++ @clothing_female, &elem(&1, 0))
+  def clothing(:male), do: Enum.map(@clothing_any ++ @clothing_male, &elem(&1, 0))
+
+  @doc "Clothing as `{group, items}`: for anyone, women's and men's."
+  def clothing_groups do
+    [
+      {"For anyone", Enum.map(@clothing_any, &elem(&1, 0))},
+      {"Women's", Enum.map(@clothing_female, &elem(&1, 0))},
+      {"Men's", Enum.map(@clothing_male, &elem(&1, 0))}
+    ]
+  end
+
+  @doc "The main colour of a clothing item, or nil for one that isn't listed."
+  def clothing_colour(item) do
+    case List.keyfind(@all_clothing, item, 0) do
+      {_item, colour} -> colour
+      nil -> nil
+    end
+  end
 
   def ancestries, do: @ancestries |> Map.keys() |> Enum.sort()
 
@@ -305,7 +366,7 @@ defmodule Phantom.Biometrics.FaceAttributes do
     {facial_hair, rng} = sex |> facial_hair(rng) |> fixed(sex == :male && opts[:facial_hair])
     {face_shape, rng} = @face_shapes |> pick(rng) |> fixed(opts[:face_shape])
     {build, rng} = @builds |> weighted(rng) |> fixed(opts[:build])
-    {clothing, rng} = @clothing |> pick(rng) |> fixed(opts[:clothing])
+    {clothing, rng} = sex |> clothing() |> pick(rng) |> fixed(opts[:clothing])
     {marks, _rng} = rng |> marks() |> fixed(opts[:marks])
     hair = fill_hair(hair_style, texture, hair_color)
 

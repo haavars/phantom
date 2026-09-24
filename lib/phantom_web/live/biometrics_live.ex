@@ -211,6 +211,23 @@ defmodule PhantomWeb.BiometricsLive do
     ]
   end
 
+  # With a fixed sex, the clothes for anyone and for that sex; otherwise all
+  # of them, grouped.
+  defp trait_options(:clothing, traits) do
+    case traits["sex"] do
+      sex when sex in ["female", "male"] ->
+        sex
+        |> String.to_existing_atom()
+        |> FaceAttributes.clothing()
+        |> with_current(traits["clothing"])
+        |> Enum.map(&{option_label(&1), &1})
+
+      _random ->
+        for {group, items} <- FaceAttributes.clothing_groups(),
+            do: {group, Enum.map(items, &{option_label(&1), &1})}
+    end
+  end
+
   defp trait_options(field, traits) do
     ancestry = traits["ancestry"]
 
@@ -220,15 +237,21 @@ defmodule PhantomWeb.BiometricsLive do
         :eye_color -> FaceAttributes.eye_colors(ancestry)
         :hair_color -> FaceAttributes.hair_colors(ancestry)
         :hair_texture -> FaceAttributes.hair_textures(ancestry)
+        :mark -> ["random" | FaceAttributes.marks()]
         field -> Traits.options(field)
       end
 
-    current = traits[Atom.to_string(field)]
-    values = if is_nil(current) or current in values, do: values, else: values ++ [current]
-    Enum.map(values, &{option_label(&1), &1})
+    values
+    |> with_current(traits[Atom.to_string(field)])
+    |> Enum.map(&{option_label(&1), &1})
+  end
+
+  defp with_current(values, current) do
+    if is_nil(current) or current in values, do: values, else: values ++ [current]
   end
 
   defp option_label("none"), do: "None"
+  defp option_label("random"), do: "Random (about 1 in 3 people)"
   defp option_label(value), do: value |> String.replace(~r/\A(a|an) /, "") |> sentence()
 
   # Runs queue behind the active one, but only start when the services their
@@ -292,6 +315,7 @@ defmodule PhantomWeb.BiometricsLive do
   attr :label, :string, required: true
   attr :options, :list, required: true
   attr :disabled, :string, default: nil, doc: "why the trait doesn't apply, if it doesn't"
+  attr :unset, :string, default: "Random", doc: "what leaving the trait unset means"
 
   # A trait: Random, or a value every subject gets (highlighted, with a button
   # back to Random).
@@ -317,8 +341,8 @@ defmodule PhantomWeb.BiometricsLive do
           phx-click="clear-trait"
           phx-value-trait={@field.field}
           class="rounded text-base-content/40 transition hover:text-base-content"
-          aria-label={"Make #{String.downcase(@label)} random"}
-          title="Back to random"
+          aria-label={"Set #{String.downcase(@label)} back to #{String.downcase(@unset)}"}
+          title={"Back to #{String.downcase(@unset)}"}
         >
           <.icon name="hero-x-mark-mini" class="size-4" />
         </button>
@@ -334,7 +358,7 @@ defmodule PhantomWeb.BiometricsLive do
         ]}
       >
         <option :if={@disabled} value="">{@disabled}</option>
-        <option :if={!@disabled} value="">Random</option>
+        <option :if={!@disabled} value="">{@unset}</option>
         {Phoenix.HTML.Form.options_for_select(@options, @field.value)}
       </select>
       <p :for={error <- @field.errors} class="mt-1 text-xs text-error">{translate_error(error)}</p>
@@ -711,6 +735,7 @@ defmodule PhantomWeb.BiometricsLive do
                   <.trait_select
                     field={t[:mark]}
                     label="Distinguishing mark"
+                    unset="None"
                     options={trait_options(:mark, @traits)}
                   />
                 </div>
@@ -722,7 +747,7 @@ defmodule PhantomWeb.BiometricsLive do
             id="faces-section"
             step={2}
             title="Faces"
-            subtitle="Qwen-Image-2.1 · GPU. Every face shot is conditioned on the frontal anchor."
+            subtitle="Qwen-Image-2.1 · GPU. Probes vary head angle and expression slightly."
           >
             <:actions>
               <.shot_picks

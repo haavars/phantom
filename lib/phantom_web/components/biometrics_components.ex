@@ -19,12 +19,14 @@ defmodule PhantomWeb.BiometricsComponents do
     "mugshot_three_quarter_left" => "About 45°, towards the left.",
     "mugshot_three_quarter_right" => "About 45°, towards the right.",
     "icao_portrait" => "Passport photo, light background.",
-    "probe_rebooking" => "Head turned, harsh light, other clothes.",
+    "probe_rebooking" => "A year later: harsh light, other clothes.",
     "probe_aged" => "The same person 15 years later.",
-    "probe_glasses" => "Glasses, window light, slight smile.",
+    "probe_glasses" => "Glasses, window light.",
     "probe_appearance" => "Beard or hairstyle changed."
   }
 
+  # Probes also get a slight head angle and expression of their own (see
+  # FacePrompts.variation/2), shown once on the face section.
   @group_descriptions %{
     "rolled" => "10 rolled fingers, FGP 1–10, 800×750",
     "slaps" => "Right four, left four and two thumbs, FGP 13–15",

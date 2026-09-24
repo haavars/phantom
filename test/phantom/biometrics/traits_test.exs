@@ -10,7 +10,8 @@ defmodule Phantom.Biometrics.TraitsTest do
   test "leaves blank traits random" do
     assert {:ok, traits} = cast(%{"sex" => "", "ancestry" => "", "age_min" => ""})
     assert Traits.to_map(traits) == %{}
-    assert Traits.sample_opts(%{}) == []
+    # Except marks: nobody has one unless the run asks for it.
+    assert Traits.sample_opts(%{}) == [marks: []]
     assert Traits.to_map(nil) == %{}
   end
 
@@ -65,12 +66,37 @@ defmodule Phantom.Biometrics.TraitsTest do
 
   test "a fixed trait leaves the draws of the others alone" do
     for seed <- 1..40 do
-      free = FaceAttributes.sample(seed)
-      fixed = sample(seed, %{"clothing" => "a burgundy sweatshirt", "build" => "slim"})
+      free = sample(seed, %{"mark" => "random"})
+
+      fixed =
+        sample(seed, %{
+          "clothing" => "a burgundy sweatshirt",
+          "build" => "slim",
+          "mark" => "random"
+        })
 
       assert %{clothing: "a burgundy sweatshirt", build: "slim"} = fixed
       assert Map.drop(fixed, [:clothing, :build]) == Map.drop(free, [:clothing, :build])
     end
+  end
+
+  test "distinguishing marks are the exception: none unless the run asks" do
+    people = fn stored -> for seed <- 1..200, do: sample(seed, stored) end
+
+    assert Enum.all?(people.(%{}), &(&1.marks == []))
+    assert Enum.all?(people.(%{"mark" => "none"}), &(&1.marks == []))
+
+    assert Enum.all?(
+             people.(%{"mark" => "a slightly crooked nose"}),
+             &(&1.marks == ["a slightly crooked nose"])
+           )
+
+    # Random: some get one, as FaceAttributes samples it on its own.
+    with_marks = Enum.count(people.(%{"mark" => "random"}), &(&1.marks != []))
+    assert with_marks in 40..100
+
+    for seed <- 1..40,
+        do: assert(sample(seed, %{"mark" => "random"}) == FaceAttributes.sample(seed))
   end
 
   test "facial hair only applies to men, and a fixed hair colour isn't greyed" do
@@ -105,7 +131,9 @@ defmodule Phantom.Biometrics.TraitsTest do
              "age_min" => 40,
              "hair_style" => "buzz_cut",
              "mark" => "none"
-           }) == ["Male", "East African", "40–75 years", "hair: buzz cut", "no marks"]
+           }) == ["Male", "East African", "40–75 years", "hair: buzz cut"]
+
+    assert Traits.describe(%{"mark" => "random"}) == ["a mark on some"]
 
     assert Traits.describe(%{"age_min" => 30, "age_max" => 30}) == ["30 years"]
   end

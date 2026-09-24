@@ -16,13 +16,22 @@ defmodule Phantom.Biometrics.FacePrompts do
   profile, `R` right profile, `A` angled. A left profile shows the subject's left
   side, so they face the *left* edge of the image.
 
+  The mugshots (frontal, profiles, ¾ views) are one booking session, so they
+  show scars as the anchor does. Every other shot is taken at another time,
+  and any scar in it has healed.
+
+  The probes (re-booking, aged, glasses, appearance) are other photos than the
+  reference, so each gets its own slight head angle and expression
+  (`variation/2`), for testing face matching across pose and expression. The
+  ICAO portrait stays compliant: frontal, neutral.
+
   Bump `@version` whenever a template changes, so harness runs record which
   prompts produced them.
   """
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v3"
+  @version "faces-v6"
 
   @mugshot {896, 1120}
   @icao {896, 1152}
@@ -100,6 +109,7 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   def prompt("icao_portrait", attrs) do
     edit(
+      attrs,
       "Edit the reference photo into an ICAO 9303 compliant passport photograph of the same person.",
       [
         "zoom in and re-crop so the head is much larger: chin to top of the head fills about three quarters of the image height, with only the top of the shoulders visible",
@@ -113,43 +123,43 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   def prompt("probe_rebooking", attrs) do
     edit(
+      attrs,
       "Edit the reference photo into a different police booking photograph of the same person, taken a year later at another police station.",
       [
         "#{subject(attrs)} now wears #{alternate_clothing(attrs, 2)}",
-        "the head is turned about 15 degrees towards the #{side(attrs)} of the image and tilted slightly down",
         "harsh overhead fluorescent light casts shadows under the eyebrows, nose and chin, with a slight greenish-yellow colour cast",
         "the camera is a little higher and closer",
         "the hair is a little messier",
-        "a tired expression with the eyes slightly narrowed",
         "the background is a scuffed off-white painted wall"
-      ],
+      ] ++ varied("probe_rebooking", attrs),
       "head and upper shoulders in frame"
     )
   end
 
   def prompt("probe_aged", attrs) do
     edit(
+      attrs,
       "Edit the reference photo to show the same person 15 years older, now #{attrs.age + 15} years old, at a later police booking.",
       [
         "clearly visible ageing: deeper forehead lines, crow's feet around the eyes, deeper lines from nose to mouth, looser skin under the eyes and jaw, thinner lips and a few age spots",
         "the hair is #{aged_hair(attrs)}",
         "#{subject(attrs)} now wears #{alternate_clothing(attrs, 3)}"
-      ],
-      "frontal view, head and upper shoulders, neutral expression, plain mid-grey background, even flash lighting"
+      ] ++ varied("probe_aged", attrs),
+      "head and upper shoulders, plain mid-grey background, even flash lighting"
     )
   end
 
   def prompt("probe_glasses", attrs) do
     edit(
+      attrs,
       "Edit the reference photo into a casual indoor photograph of the same person wearing glasses.",
       [
         "#{subject(attrs)} now wears thin dark-rimmed rectangular prescription glasses",
         "#{subject(attrs)} now wears #{alternate_clothing(attrs, 4)}",
         "soft daylight from a window on the #{side(attrs)} side of the image, leaving the other side of the face in gentle shadow",
-        "a slight, closed-mouth smile",
         "the background is a plain light-coloured wall"
-      ],
-      "frontal view, head and upper shoulders"
+      ] ++ varied("probe_glasses", attrs),
+      "head and upper shoulders"
     )
   end
 
@@ -170,10 +180,82 @@ defmodule Phantom.Biometrics.FacePrompts do
       end
 
     edit(
+      attrs,
       "Edit the reference photo into a later police booking photograph of the same person with a changed appearance.",
-      [change, "#{subject(attrs)} now wears #{alternate_clothing(attrs, 5)}"],
-      "frontal view, head and upper shoulders, neutral expression, plain mid-grey background, even flash lighting"
+      [change, "#{subject(attrs)} now wears #{alternate_clothing(attrs, 5)}"] ++
+        varied("probe_appearance", attrs),
+      "head and upper shoulders, plain mid-grey background, even flash lighting"
     )
+  end
+
+  # Expressions a probe can have. Qwen keeps the reference's expression unless
+  # told otherwise, so each is a concrete target, never "a different expression".
+  @expressions [
+    "a relaxed, neutral expression with the lips slightly parted",
+    "a slight, closed-mouth smile",
+    "a broad smile showing the upper teeth",
+    "a slight frown, with the eyebrows drawn together",
+    "the eyebrows slightly raised, as if mildly surprised",
+    "the eyes slightly narrowed, as if squinting in bright light",
+    "the mouth slightly open, as if caught mid-sentence",
+    "a tired look with heavy eyelids",
+    "the lips pressed together in a tense, flat line"
+  ]
+
+  @doc """
+  The head angle and expression of probe `shot` of the person `attrs`
+  describes: the same for the same person and shot, different between shots
+  and people. Slight on purpose, so the face stays clearly visible:
+
+    * `:yaw` - degrees turned towards `:towards` (`"left"` / `"right"` of the image), 4-19
+    * `:pitch` - `:level`, `:up` or `:down` (slightly)
+    * `:roll` - `nil`, or the shoulder (`"left"` / `"right"`) the head leans towards
+    * `:expression` - one of the expressions above
+    * `:off_camera?` - whether the eyes look slightly past the camera
+  """
+  def variation(shot, attrs) do
+    rng = :rand.seed_s(:exsss, {attrs.seed, :erlang.phash2(shot), 0x9E5})
+    {yaw, rng} = :rand.uniform_s(16, rng)
+    {towards, rng} = pick(["left", "right"], rng)
+    {pitch, rng} = pick([:level, :up, :down], rng)
+    {roll, rng} = pick([nil, nil, "left", "right"], rng)
+    {expression, rng} = pick(@expressions, rng)
+    {gaze, _rng} = :rand.uniform_s(rng)
+
+    %{
+      yaw: yaw + 3,
+      towards: towards,
+      pitch: pitch,
+      roll: roll,
+      expression: expression,
+      off_camera?: gaze < 0.25
+    }
+  end
+
+  defp varied(shot, attrs) do
+    v = variation(shot, attrs)
+
+    pitch =
+      case v.pitch do
+        :level -> "with the chin level"
+        :up -> "with the chin raised slightly"
+        :down -> "tilted slightly down"
+      end
+
+    roll = if v.roll, do: ", leaning slightly towards the #{v.roll} shoulder", else: ""
+
+    gaze =
+      if v.off_camera?, do: "looking slightly past the camera", else: "looking into the camera"
+
+    [
+      "unlike the reference, the head is turned about #{v.yaw} degrees towards the #{v.towards} of the image, #{pitch}#{roll}",
+      "the expression changes to #{v.expression}, #{gaze}"
+    ]
+  end
+
+  defp pick(list, rng) do
+    {index, rng} = :rand.uniform_s(length(list), rng)
+    {Enum.at(list, index - 1), rng}
   end
 
   defp profile(attrs, pose) do
@@ -188,16 +270,47 @@ defmodule Phantom.Biometrics.FacePrompts do
   # Image-conditioned edits: Qwen follows the reference closely, so vague asks like
   # "different clothing" get ignored. Spell each change out as a concrete target
   # state, and only ask it to keep the facial features.
-  defp edit(intro, changes, pose) do
+  defp edit(attrs, intro, changes, pose) do
+    healed = healed_scars(attrs)
+    kept = if healed == [], do: "any scars, moles or freckles", else: "any moles or freckles"
+
     """
-    #{intro} Changes: #{Enum.join(changes, "; ")}. Keep the face shape, bone structure, eyes, \
-    nose, mouth, ears, skin tone and any scars, moles or freckles exactly the same, so it is \
+    #{intro} Changes: #{Enum.join(changes ++ healed, "; ")}. Keep the face shape, bone \
+    structure, eyes, nose, mouth, ears, skin tone and #{kept} exactly the same, so it is \
     clearly the same individual. Pose: #{pose}. #{@photo} #{@clean_frame}\
     """
   end
 
+  # How each scar in `FaceAttributes.marks/0` looks once it has healed: still
+  # there, in the same place, but faded.
+  @healed_scars %{
+    "a thin healed scar through the right eyebrow" =>
+      "the scar through the right eyebrow has fully healed into a thin, pale line in the same place, still leaving a narrow gap in the eyebrow hair",
+    "a small scar above the left eyebrow" =>
+      "the small scar above the left eyebrow has fully healed into a faint, flat, pale line in the same place, with no redness or scab",
+    "faint acne scars on the cheeks" =>
+      "the acne scars on the cheeks have fully healed and faded to a barely visible texture, with no redness or spots"
+  }
+
+  defp healed_scars(attrs) do
+    for mark <- attrs.marks, mark =~ "scar" do
+      Map.get_lazy(@healed_scars, mark, fn ->
+        "#{String.replace_prefix(mark, "a ", "the ")} has fully healed and faded, still visible in the same place"
+      end)
+    end
+  end
+
+  # Another outfit for the person's sex, in another colour than the one
+  # they wear in the mugshots, so the change is visible.
   defp alternate_clothing(attrs, n) do
-    options = FaceAttributes.clothing() -- [attrs.clothing]
+    colour = FaceAttributes.clothing_colour(attrs.clothing)
+
+    options =
+      for item <- FaceAttributes.clothing(attrs.sex),
+          item != attrs.clothing,
+          is_nil(colour) or FaceAttributes.clothing_colour(item) != colour,
+          do: item
+
     Enum.at(options, rem(attrs.seed + n, length(options)))
   end
 

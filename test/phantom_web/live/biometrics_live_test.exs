@@ -74,6 +74,12 @@ defmodule PhantomWeb.BiometricsLiveTest do
 
     assert has_element?(view, "#traits-summary", "Every trait is random")
     assert has_element?(view, "#batch_traits_0_sex_random[checked]")
+    # Nobody has a distinguishing mark unless the run asks for one.
+    assert has_element?(view, ~s(#batch_traits_0_mark option[value=""]), "None")
+    assert has_element?(view, ~s(#batch_traits_0_mark option[value="random"]), "Random")
+    # With sex random, clothes come grouped: for anyone, women's and men's.
+    assert has_element?(view, ~s(#batch_traits_0_clothing optgroup[label="Women's"]))
+    assert has_element?(view, ~s(#batch_traits_0_clothing optgroup[label="Men's"]))
     refute has_element?(view, "#batch_traits_0_facial_hair[disabled]")
 
     view
@@ -89,6 +95,16 @@ defmodule PhantomWeb.BiometricsLiveTest do
     # Women have no facial hair; colours are the ones the ancestry has.
     assert has_element?(view, "#batch_traits_0_facial_hair[disabled]")
     assert has_element?(view, "#batch_traits_0_sex_female[checked]")
+    # Only clothes for anyone and for women.
+    refute has_element?(view, "#batch_traits_0_clothing optgroup")
+
+    assert has_element?(
+             view,
+             ~s(#batch_traits_0_clothing option[value="a floral summer dress with thin straps"])
+           )
+
+    assert has_element?(view, ~s(#batch_traits_0_clothing option[value="a plain black t-shirt"]))
+    refute has_element?(view, ~s(#batch_traits_0_clothing option[value="a navy polo shirt"]))
     assert has_element?(view, ~s(#batch_traits_0_eye_color option[value="blue"]))
     refute has_element?(view, ~s(#batch_traits_0_eye_color option[value="dark brown"]))
 

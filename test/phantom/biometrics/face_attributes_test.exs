@@ -33,6 +33,34 @@ defmodule Phantom.Biometrics.FaceAttributesTest do
              length(FaceAttributes.hair_styles())
   end
 
+  test "people wear clothes for anyone or for their sex" do
+    groups = Map.new(FaceAttributes.clothing_groups())
+    women_only = groups["Women's"]
+    men_only = groups["Men's"]
+
+    assert length(FaceAttributes.clothing()) >= 36
+    assert Enum.sort(Enum.flat_map(groups, &elem(&1, 1))) == Enum.sort(FaceAttributes.clothing())
+
+    assert FaceAttributes.clothing() |> Enum.uniq() |> length() ==
+             length(FaceAttributes.clothing())
+
+    assert Enum.all?(FaceAttributes.clothing(), &FaceAttributes.clothing_colour/1)
+
+    people = for seed <- 1..400, do: FaceAttributes.sample(seed)
+
+    for person <- people do
+      assert person.clothing in FaceAttributes.clothing(person.sex)
+      if person.sex == :female, do: refute(person.clothing in men_only)
+      if person.sex == :male, do: refute(person.clothing in women_only)
+    end
+
+    # Both the shared and the sex-specific clothes get picked.
+    worn = MapSet.new(people, & &1.clothing)
+    assert Enum.any?(women_only, &(&1 in worn))
+    assert Enum.any?(men_only, &(&1 in worn))
+    assert Enum.any?(groups["For anyone"], &(&1 in worn))
+  end
+
   test "attributes read back from how a subject stores them" do
     for seed <- 1..50 do
       attrs = FaceAttributes.sample(seed)

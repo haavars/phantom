@@ -1,7 +1,9 @@
 defmodule Phantom.Biometrics.Traits do
   @moduledoc """
   The appearance a run gives all of its subjects. Every trait left `nil` is
-  random: sampled for each subject by `Phantom.Biometrics.FaceAttributes`.
+  random: sampled for each subject by `Phantom.Biometrics.FaceAttributes`,
+  except the distinguishing mark, which is the exception rather than the
+  rule: nobody has one unless the run asks for it.
 
   A run stores its traits (`to_map/1`) and each subject is sampled with them
   (`sample_opts/1`), so ten Northern European women in their thirties with
@@ -13,8 +15,9 @@ defmodule Phantom.Biometrics.Traits do
                   eye_color: "blue"}
       })
 
-  `mark` is one of `FaceAttributes.marks/0`, or `"none"` for no marks.
-  `facial_hair` only applies to men.
+  `mark` is one of `FaceAttributes.marks/0` for everyone, `"random"` for a
+  random mark on some subjects (about one in three), or `nil` / `"none"` for
+  no marks. `facial_hair` only applies to men.
   """
 
   use Ecto.Schema
@@ -80,7 +83,7 @@ defmodule Phantom.Biometrics.Traits do
   def options(:face_shape), do: FaceAttributes.face_shapes()
   def options(:build), do: FaceAttributes.builds()
   def options(:clothing), do: FaceAttributes.clothing()
-  def options(:mark), do: ["none" | FaceAttributes.marks()]
+  def options(:mark), do: ["none", "random" | FaceAttributes.marks()]
 
   def changeset(traits \\ %__MODULE__{}, attrs) do
     traits
@@ -141,8 +144,8 @@ defmodule Phantom.Biometrics.Traits do
       clothing: traits.clothing,
       marks:
         case traits.mark do
-          nil -> nil
-          "none" -> []
+          "random" -> nil
+          none when none in [nil, "none"] -> []
           mark -> [mark]
         end
     ]
@@ -170,8 +173,8 @@ defmodule Phantom.Biometrics.Traits do
       get.(:build) && "#{get.(:build)} build",
       get.(:clothing),
       case get.(:mark) do
-        nil -> nil
-        "none" -> "no marks"
+        none when none in [nil, "none"] -> nil
+        "random" -> "a mark on some"
         mark -> mark
       end
     ]
