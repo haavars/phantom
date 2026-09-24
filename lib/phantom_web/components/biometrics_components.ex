@@ -203,6 +203,7 @@ defmodule PhantomWeb.BiometricsComponents do
       |> assign(:aspect, "aspect-ratio: #{w} / #{h}")
       |> assign(:ridge?, spec.modality == :ridge)
       |> assign(:width, tile_width(spec.group, w, h))
+      |> assign(:box, image_width(spec.group, w, h))
 
     assigns =
       assigns
@@ -217,6 +218,7 @@ defmodule PhantomWeb.BiometricsComponents do
             patch={shot_path(@run, @subject.name, @shot, @focused?)}
             class={[
               "group relative block overflow-hidden rounded-xl ring-1 transition hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+              @box,
               if(@check && @check["accepted"] == false, do: "ring-error/60", else: "ring-base-300"),
               if(@ridge?, do: "bg-white", else: "bg-base-200")
             ]}
@@ -235,7 +237,10 @@ defmodule PhantomWeb.BiometricsComponents do
           </.link>
         <% @record -> %>
           <div
-            class="flex flex-col items-center justify-center gap-1 rounded-xl bg-error/10 p-2 text-center text-xs text-error ring-1 ring-error/30"
+            class={[
+              "flex flex-col items-center justify-center gap-1 rounded-xl bg-error/10 p-2 text-center text-xs text-error ring-1 ring-error/30",
+              @box
+            ]}
             style={@aspect}
             title={@record.error}
           >
@@ -246,21 +251,30 @@ defmodule PhantomWeb.BiometricsComponents do
           </div>
         <% @rendering? -> %>
           <div
-            class="flex flex-col items-center justify-center gap-2 rounded-xl bg-base-200 text-xs text-base-content/60 ring-1 ring-primary/40"
+            class={[
+              "flex flex-col items-center justify-center gap-2 rounded-xl bg-base-200 text-xs text-base-content/60 ring-1 ring-primary/40",
+              @box
+            ]}
             style={@aspect}
           >
             <.spinner class="size-5 text-primary" /> Rendering…
           </div>
         <% @active? -> %>
           <div
-            class="flex items-center justify-center rounded-xl border border-dashed border-base-300 text-xs text-base-content/40"
+            class={[
+              "flex items-center justify-center rounded-xl border border-dashed border-base-300 text-xs text-base-content/40",
+              @box
+            ]}
             style={@aspect}
           >
             Queued
           </div>
         <% true -> %>
           <div
-            class="flex items-center justify-center rounded-xl border border-dashed border-base-300 text-xs text-base-content/40"
+            class={[
+              "flex items-center justify-center rounded-xl border border-dashed border-base-300 text-xs text-base-content/40",
+              @box
+            ]}
             style={@aspect}
           >
             Not rendered
@@ -299,8 +313,12 @@ defmodule PhantomWeb.BiometricsComponents do
   defp tile_width("rolled", _w, _h), do: "w-28"
   defp tile_width("slaps", _w, _h), do: "w-48"
   defp tile_width("card", _w, _h), do: "w-48"
-  defp tile_width("palms", w, h) when w / h < 0.5, do: "w-16"
   defp tile_width(_group, _w, _h), do: "w-32"
+
+  # Writer's palms are narrow: their image is half a full palm's width, so it's
+  # as tall, in a tile as wide, so the label ("R writer's palm") fits.
+  defp image_width("palms", w, h) when w / h < 0.5, do: "w-16"
+  defp image_width(_group, _w, _h), do: nil
 
   @pattern_codes %{
     "whorl" => "W",
