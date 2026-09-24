@@ -14,18 +14,19 @@ Phantom generates **synthetic subjects**, fictional people, for ABIS testing. Ea
   them as realistic inked prints with a diffusion model (or procedurally, as a fast CPU draft), and verifies
   every finger and slap against its ground truth. Extra captures can be added for mated pairs.
 
-All images of one subject show the same person, the same fingers and the same palms. This implements the face
-and friction-ridge parts of [`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md). You can run it from
-the command line or from the web UI at `/biometrics`.
+All images of one subject show the same person, the same fingers and the same palms. A run can fix any
+appearance trait for all of its people (ten Northern European women in their thirties, say), and every person
+can be downloaded as a ZIP with a manifest. This implements the face and friction-ridge parts of
+[`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md). You can drive it from IEx or from the web UI.
 
-**Status (2026-09-23):**
+**Status (2026-09-24):**
 
-- Faces and friction ridges both work, from the command line and the web UI.
+- Faces and friction ridges both work, from IEx and the web UI. Runs, subjects and images are stored in
+  Postgres, the files on local disk.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
-- There is no S3 storage or database yet; images go to a local folder.
-- Two face changes haven't been checked on real images yet: prompt version `faces-v3` and the VAE seam fix
-  (see [Qwen service changes](#qwen-service-changes)).
+- The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
+  clothing by sex; now `faces-v7`) haven't been checked on a large set of real renders yet.
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -45,9 +46,20 @@ machine without an NVIDIA GPU and use the `procedural` renderer.
 Start runs from the web UI (below), or from IEx attached to the running app (`iex -S mix phx.server`):
 
 ```elixir
-Phantom.Biometrics.create_run(%{subjects: 5, seed: 42})                                    # default face shots
+Phantom.Biometrics.create_run(%{subjects: 5, seed: 42})                                    # default shots
 Phantom.Biometrics.create_run(%{shots: ["faces", "rolled", "slaps", "palms", "card"], captures: 2})
 Phantom.Biometrics.create_run(%{shots: ["rolled", "slaps"], renderer: "procedural"})      # no GPU needed
+
+# Ten Northern European women in their thirties with blue eyes; everything else random per person.
+Phantom.Biometrics.create_run(%{
+  subjects: 10,
+  traits: %{sex: "female", ancestry: "Northern European", age_min: 30, age_max: 39, eye_color: "blue"}
+})
+
+# Later: glasses probes for everyone in an existing run, and re-render deleted files.
+{:ok, run} = Phantom.Biometrics.get_run("20260924-171001-seed1740159062")
+Phantom.Biometrics.add_shots(run, ["probe_glasses"])
+Phantom.Biometrics.resume_run(run)
 ```
 
 `create_run/1` validates its parameters like the web form (`Phantom.Biometrics.RunRequest`) and queues the run,
@@ -62,39 +74,53 @@ with `bin/phantom rpc`.
 | `captures` | 1 | Captures per finger and palm shot (max 3); captures after the first are mated pairs |
 | `renderer` | `diffusion` | Friction-ridge renderer: `diffusion` (realistic, GPU) or `procedural` (fast CPU draft) |
 | `steps` | 40 | Denoising steps for face shots (20, 30, 40 or 50) |
+| `traits` | all random | Appearance every person in the run shares (see [Traits](#traits)) |
 | `run` | `<timestamp>-seed<S>` | Run name |
 
 ## Web UI
 
-With `mix phx.server` running, open [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or use
-**Runs** in the top navigation.
+With `mix phx.server` running, open [`localhost:4000`](http://localhost:4000). The header has **Overview** and
+**Runs**, a **New run** button and the theme toggle (system, light, dark; in the footer on phones).
 
-- **`/biometrics`**
-  - **New run** form:
-    - subjects, seed and run name
-    - face shots and face steps
-    - friction-ridge groups, renderer and captures
-    - an estimate of images and minutes
-  - The status of both services. **Start run** is disabled until the services the selection needs are ready.
-    Runs started while another is rendering are queued behind it.
-  - The run rendering now, with a progress bar, the shot being rendered, and **Cancel**.
-  - All runs, newest first (including runs created from IEx), marked queued, running, cancelled or failed.
-- **`/biometrics/<run>`**
+- **`/`**, the overview: what Phantom is, how a subject is made, and a gallery of the identities generated so
+  far, filterable by those with a face or with fingerprints. A card opens that person's page.
+- **`/biometrics`**, runs:
+  - The run rendering now, with a progress bar, the shot being rendered, **Watch** and **Cancel**.
+  - The **new-run form** in three numbered sections, with a sticky summary beside them:
+    1. **People:** how many, then a Random / Female / Male toggle, an age range, ancestry, and a grid of
+       appearance traits (skin, eyes, hair colour, texture and style, facial hair, face shape, build, clothing,
+       distinguishing mark). Each is **Random** until set; a set trait is highlighted and has an × back to
+       Random. Colour and texture lists narrow to the chosen ancestry, clothing to the chosen sex; facial hair
+       is disabled for women. The distinguishing mark defaults to **None**.
+    2. **Faces:** a card per face shot, with All / Default / None and the denoising steps.
+    3. **Friction ridge:** a card per group (rolled, slaps, palms, card), with All / None, the renderer and
+       captures.
+  - The summary shows people, images and minutes, the traits everyone shares, an example person (subject 1 of
+    the run when a seed is set, otherwise a random one with **Another**), run name and seed, the status of
+    the services the selection needs, and **Start run**. It stays disabled until those services are ready;
+    runs started while another renders queue behind it.
+  - All runs, newest first (including runs created from IEx), with their shared traits.
+- **`/biometrics/<run>`**, one run:
+  - Seed, prompt version, shared traits, renderer, steps and progress.
   - A **Friction-ridge quality** panel once the run has finished: verified, accepted, retried and rejected
     counts, NFIQ 2 and minutiae recall per impression type, and `bozorth3` mated against non-mated scores.
-  - One card per subject, with the description and sections for Face, Rolled fingers, Slaps, Palms and
-    Tenprint card, plus one section per extra capture.
+  - One card per subject with the description, **Download** and **Open identity**, and sections for Face,
+    Rolled fingers, Slaps, Palms and Tenprint card, plus one section per extra capture.
   - Each tile shows its thumbnail, *Rendering…*, *Queued* or *Failed*, and a code: the pose code for faces,
     FGP for fingers, PLP for palms. Rolled fingers also show their pattern class (W, RL, LL, A, TA). Verified
     fingers and slaps show their NFIQ 2 score, marked when the image needed a retry or was rejected. Cards fill
     in live while the run is active.
   - Click a tile for the detail view: full image, size, seed and render time. Faces show the person and the
-    exact prompt. Friction-ridge shots show the ground truth (pattern, singular points, minutiae count,
-    triradii), the verification results and a link to the ground-truth JSON. ←/→ moves between the subject's
-    shots, and Esc closes it.
-  - **Cancel** stops a queued or running run. **Resume** appears for cancelled or failed runs, and for runs with
-    missing subjects or failed shots. It queues the subjects that aren't done; they keep the images already
-    rendered and render the rest with the same seeds.
+    exact prompt; friction-ridge shots show the ground truth (pattern, singular points, minutiae count,
+    triradii), the verification results and a link to the ground-truth JSON. **Download** saves the image
+    under the person's code. ←/→ moves between the subject's shots, and Esc closes it.
+  - **Cancel** stops a queued or running run.
+  - **Resume** appears whenever a subject is missing an image: cancelled, failed or grown runs, failed shots,
+    and files deleted from disk (a note above the subjects says how many). It re-renders only what's missing,
+    from the stored seeds and prompts (see [Determinism](#determinism-resuming-and-adding-shots)).
+  - **Add shots** adds face shots or friction-ridge groups the run doesn't have yet to every subject.
+- **`/biometrics/<run>/<subject>`**, one identity: the person's code, sex, age and description, every image,
+  and a **Download** menu (see [Downloads](#downloads)).
 
 Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
 
@@ -106,9 +132,48 @@ Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
   failed. While a service a job needs isn't ready (the Qwen model takes a while to load), the job waits.
 - Every image, subject and run update is broadcast over PubSub (`Phantom.Biometrics.subscribe/0`), so open pages
   fill in live.
+- Anything that starts the whole app (`mix run`, `iex -S mix`) starts Oban too, and takes jobs from the queue
+  alongside a running server. Use `mix run --no-start` for scripts that only need the database.
 
-Runs are stored in Postgres (see [Storage](#storage)). Images are served by id from `/images/:id`, and a
-friction-ridge image's ground truth from `/images/:id/ground-truth`.
+Runs are stored in Postgres (see [Storage](#storage)). Images are served by id from `/images/:id`
+(`?download=1` to save one), and a friction-ridge image's ground truth from `/images/:id/ground-truth`.
+
+## Downloads
+
+One person downloads as a ZIP from their page (**Download**: everything, faces only, or fingerprints and palms
+only, each with its image count and size), from their card on the run page, or directly:
+
+```
+GET /biometrics/<run>/<subject>/download?include=all|faces|prints
+```
+
+The archive is named after the person (`PH-5167-ED5B_synthetic.zip`, `…_faces_synthetic.zip`) and holds one
+folder:
+
+```
+PH-5167-ED5B/
+  README.txt                          synthetic-data notice, what each folder holds
+  subject.json                        who, how, and every file with its SHA-256
+  face/mugshot_frontal_F.png          the pose code ends the name
+  fingerprints/rolled/fgp02_R_index.png
+  fingerprints/rolled/fgp02_R_index_c2.png     extra captures end in _c2, _c3
+  fingerprints/slaps/fgp13_Right_four.png
+  palms/plp22_R_writers_palm.png
+  card/tenprint_card.png
+  ground_truth/fgp02_R_index.json     per print: minutiae, cores, deltas, verification
+```
+
+`subject.json` has the person's code, run, subject name, seed, description and attributes; the run's seed,
+traits, prompt version, renderer, steps and captures; and a `files` list with each file's path, shot, label,
+modality, position (pose code, FGP or PLP), capture (from 1), size, ppi, seed, prompt and reference image
+(faces), byte size, SHA-256 and ground-truth file. Shots of the run that aren't in the download are listed
+under `missing` with the reason (`not_rendered`, `error`, `skipped`, `file_missing`), and `complete` is false
+while any are missing or the subject is still rendering; the README then says the download is partial.
+
+`Phantom.Biometrics.Export` plans the archive and `DownloadController` streams it with
+[`zstream`](https://hex.pm/packages/zstream): PNGs are stored uncompressed (they're compressed already) and read
+from storage as the ZIP is sent, so a subject of 40–100 MB starts downloading at once and never sits in
+memory.
 
 ## How it works
 
@@ -116,7 +181,8 @@ friction-ridge image's ground truth from `/images/:id/ground-truth`.
 Phantom.Biometrics.create_run/1        from the web form or IEx
   └─ one Oban job per subject: Workers.GenerateSubject     (queue :generation, one at a time)
        └─ Generator.generate_subject/2
-            ├─ FaceAttributes.sample/1              who the person is
+            ├─ FaceAttributes.sample/2              who the person is (with the run's Traits), or the
+            │                                       subject's stored attributes when rendered before
             ├─ Generator.Faces                      face shots: FacePrompts + Services.Qwen   (python_inference, GPU, :8000)
             ├─ Generator.FrictionRidges             ridge shots: Services.Ridgegen            (python_biometrics, :8001)
             ├─ Storage.put/2                        the image file
@@ -125,7 +191,7 @@ Phantom.Biometrics.create_run/1        from the web form or IEx
 ```
 
 `Phantom.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
-`rolled` becomes `rolled_01` … `rolled_10`, and `--captures 2` adds `rolled_01_c2` … after the first capture.
+`rolled` becomes `rolled_01` … `rolled_10`, and `captures: 2` adds `rolled_01_c2` … after the first capture.
 The face anchor is only added when there are face shots.
 
 ## Faces
@@ -168,10 +234,24 @@ The **probes** are mated search images for ABIS testing: the same person with re
 
 | Probe | Variation |
 |---|---|
-| `probe_rebooking` | Head turned about 15°, harsh overhead light, different wall and clothing |
-| `probe_aged` | 15 years older |
-| `probe_glasses` | Glasses, window light, slight smile |
+| `probe_rebooking` | A year later at another station: harsh overhead light, closer camera, messier hair, different wall and clothing |
+| `probe_aged` | 15 years later, aged for the age reached (see below) |
+| `probe_glasses` | Glasses, window light, different clothing |
 | `probe_appearance` | Beard grown or shaved (men), different hairstyle (women) |
+
+Every probe also gets its own slight **head angle and expression** (`FacePrompts.variation/2`), since it's a
+different photo from the reference: turned 4–19° to either side, chin level, raised or lowered, sometimes
+leaning towards a shoulder, one of nine expressions (slight or broad smile, frown, raised eyebrows, squint,
+mid-sentence…) and now and then a gaze past the camera. It's fixed per person and shot, so it reproduces. The
+mugshots keep their standard poses and the ICAO portrait stays frontal and neutral.
+
+The mugshots are one booking session, so scars look as on the anchor. The ICAO portrait and the probes are
+taken at other times: their prompts say the scar has **healed** to a faint line in the same place.
+
+`probe_aged` ages the person for the age they reach, since "15 years older" with one heavy list made an
+18-year-old aged to 33 look 55: up to 35 only subtle maturing (no wrinkles, no grey hair), up to 49 fine lines
+and a few grey strands, up to 64 clear lines and greyer hair, and the full list with age spots beyond that. The
+prompt ends with "must look N, no older".
 
 ### Person attributes
 
@@ -180,7 +260,7 @@ The **probes** are mated search images for ABIS testing: the same person with re
 - sex, age, ancestry
 - skin tone, eye colour, hair colour and style, facial hair
 - face shape, build, clothing
-- optional distinguishing marks (mole, scar, freckles and similar)
+- distinguishing marks (mole, scar, freckles and similar)
 
 How they're chosen:
 
@@ -188,12 +268,36 @@ How they're chosen:
   appearances.
 - Skin, eye and hair colours come from ranges that fit the ancestry.
 - Grey hair and receding hairlines become more likely with age.
-- Options: `female_share`, `age_range` and `ancestry_weights`, to match a specific population.
+- Clothing (38 everyday items) is drawn from the ones for anyone and those for the person's sex. Each item has
+  a main colour, so probes can change into a different one.
+- Options: `female_share`, `age_range` and `ancestry_weights`, to match a specific population, and fixed values
+  for any attribute (below).
 
 `describe/1` renders the attributes as the sentence used in the anchor prompt, for example:
 
 > a 69-year-old man of Latin American descent with light brown skin, hazel eyes, a round face, an average
 > build, medium-length wavy white hair and a short full beard.
+
+### Traits
+
+`Phantom.Biometrics.Traits` is what a run fixes for all of its people; the run stores it (`runs.traits`) and
+every subject is sampled with it. Unset traits are random per person, except the distinguishing mark: nobody
+has one unless the run asks for a specific mark (everyone gets it) or `"random"` (about one in three, as
+sampling on its own does).
+
+| Trait | Values |
+|---|---|
+| `sex` | `female`, `male` |
+| `age_min`, `age_max` | 18–90; an open end is 18 or 75 |
+| `ancestry` | the 11 regions |
+| `skin_tone`, `eye_color`, `hair_color`, `hair_texture` | the option lists; a fixed hair colour isn't greyed with age |
+| `hair_style` | any style, for anyone |
+| `facial_hair` | men only |
+| `face_shape`, `build`, `clothing` | the option lists |
+| `mark` | a mark, `random`, or `none` |
+
+A fixed attribute still takes its random draw, so the attributes left random come out the same whatever is
+fixed, and a run without traits samples exactly as before traits existed.
 
 ### Prompt design
 
@@ -206,7 +310,8 @@ How they're chosen:
   - They also ask to keep the face, hair, clothing and background.
 - **ICAO and probes** are written as edits: *"Edit the reference photo into… Changes: A; B; C. Keep the face
   shape, bone structure, eyes, nose, mouth, ears, skin tone and any scars, moles or freckles exactly the
-  same."*
+  same."* For a subject with a scar the healed scar is one of the changes, and only moles and freckles are
+  kept exactly.
 
 The main lesson from the test runs: **with a reference image, Qwen copies it unless every change is a concrete
 target state.**
@@ -214,19 +319,24 @@ target state.**
 | Vague prompt (ignored) | Concrete prompt (followed) |
 |---|---|
 | "Different clothing" | "he now wears a burgundy sweatshirt" |
-| "Head tilted slightly" | "head turned about 15 degrees towards the right of the image" |
-| "Ten years older" | "15 years older… deeper forehead lines, crow's feet, looser skin under the eyes and jaw…" |
+| "Head tilted slightly" | "unlike the reference, the head is turned about 12 degrees towards the left of the image" |
+| "A different expression" | "the expression changes to a slight frown, with the eyebrows drawn together" |
+| "Fifteen years older" | "now 33 years old… only subtle, natural maturing… no wrinkles… She must look 33, no older" |
 
-The probes therefore pick a replacement outfit from the clothing list, chosen deterministically. The list is
-kept clearly distinct in colour and type: "grey sweatshirt" in place of "grey t-shirt" read as no change.
+The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
+colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v3`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v7`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
 | v1 | First templates. Anchor and profiles were good; ICAO and probes were near-copies of the anchor. |
 | v2 | "Changes / Keep" edit prompts with concrete changes. ICAO, re-booking, aged and glasses improved a lot. |
 | v3 | Distinct clothing list. Concrete hairstyle changes for women. Beard removal no longer shaves the head. |
+| v4 | Scars have healed in the ICAO portrait and the probes. |
+| v5 | Each probe gets its own slight head angle, expression and gaze. |
+| v6 | Probe outfits follow the person's sex and change colour. |
+| v7 | The aged probe ages for the age reached, capped with "must look N, no older". |
 
 ## Friction ridges
 
@@ -292,22 +402,32 @@ Baseline, 3–4 subjects with 2 captures each:
 | Procedural | 47 (39–56) | 54 (48–63) | 0.98 | 100% | 112 / 27 |
 | Diffusion | 46 (40–55) | 53 (45–63) | 0.92 | 99% first time, 100% after retries | 114 / 30 |
 
-## Determinism and resuming
+## Determinism, resuming and adding shots
 
-Every value is derived from the run seed:
+Every value is derived from the run seed (and the run's traits):
 
 | Value | Derived from |
 |---|---|
 | Subject seed | `phash2({run_seed, subject_index})` |
-| Attributes and prompts | Subject seed |
+| Attributes | Subject seed and the run's traits |
+| Prompts, probe pose and expression | Attributes, shot |
 | Per-shot face image seed | `phash2({subject_seed, shot})` |
 | Finger and palm masters, captures | Subject seed, finger or palm code, capture number |
 | Rendering (procedural noise, diffusion seed) | Subject seed, shot code, capture number, attempt number |
 
-Rerunning with the same `--run` and `--seed` keeps images that are already stored (their row says `ok` and the
-file exists). It renders missing ones with the same seeds, reading the anchor back from storage as the
-reference. If a shot fails, the error is recorded and
-the run continues. If the anchor fails, that subject's other face shots are marked `skipped`.
+What was derived is also stored, and rendering again starts from what's stored: a subject keeps the seed and
+attributes it was first rendered with, and a face shot its prompt, seed and size. So a deleted image comes
+back from the same inputs even after the attribute lists or prompt templates have changed. Bit-identical
+output also needs the same model weights, library versions and GPU behaviour, which aren't recorded yet.
+
+- **Resume** (`Biometrics.resume_run/1`, or **Resume** in the UI) queues every subject missing a stored image
+  of one of the run's shots: not rendered, failed, skipped, or its file deleted. Images already stored are
+  kept. Queued subjects count as incomplete until they're done, so the run finishes with the last of them.
+- **Add shots** (`Biometrics.add_shots/2`, or **Add shots**) adds shots or groups to a run that isn't
+  rendering and queues its subjects. Seeds are per shot, so a shot added later is the one the run would have
+  had with it from the start. New shots use today's prompt templates; each image stores its own prompt.
+- If a shot fails, the error is recorded and the run continues. If the anchor fails, that subject's other face
+  shots are marked `skipped`.
 
 ## Storage
 
@@ -315,7 +435,7 @@ Runs live in three Postgres tables, written as a run renders so pages can follow
 
 | Table | One row per | Holds |
 |---|---|---|
-| `runs` | run | name, seed, status (`running`, `finished`, `cancelled`, `failed`), shots, captures, renderer, steps, prompt version, subject count, quality report, error, start and finish times |
+| `runs` | run | name, seed, status (`queued`, `running`, `finished`, `cancelled`, `failed`), shots, captures, renderer, steps, prompt version, traits, subject count, quality report, error, start and finish times |
 | `subjects` | synthetic person | run, position, name (`subject_001`), seed, description, sampled attributes, when every shot was attempted |
 | `images` | shot of a subject | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary (`meta`) and full ground truth, duration, error |
 
@@ -335,7 +455,8 @@ data/synthetic/biometrics/<run>/
 ```
 
 The database only stores each file's key (`<run>/subject_001/rolled_01.png`), so another backend (S3, say) can
-implement the `Storage` behaviour and be set with `config :phantom, :biometrics_storage`.
+implement the `Storage` behaviour (`put`, `read`, `stream`, `exists?`, `local_path`) and be set with
+`config :phantom, :biometrics_storage`.
 
 ## Qwen service changes
 
@@ -377,18 +498,26 @@ The Elixir tests stub both services with `Req.Test`, run Oban in `:manual` testi
 draining the queue in the test process) and store images under `tmp/test/biometrics`:
 
 - `test/phantom/biometrics_test.exs`: the context. Listing and reading runs, queueing one job per subject,
-  resume, cancel, failure, progress and events.
+  resume (including deleted files and finishing with the last subject), adding shots, cancel, failure,
+  progress and events.
 - `test/phantom/biometrics/`
   - **Generator:** face anchor conditioning; friction-ridge shots from the subject seed with ground truth;
     the renderer; resuming keeps stored images; failed shots; the quality report.
   - **GenerateSubject worker:** renders, snoozes while a service is down, stops for cancelled runs, marks runs
     failed when discarded.
-  - **Attributes and prompts, shots, request validation, storage, gallery and the quality report.**
+  - **Rendering from stored inputs:** stored attributes and prompts win over today's code; a shot added later
+    matches one rendered with the run.
+  - **Attributes, traits and prompts:** fixed traits for everyone, draws left alone, marks only on request,
+    clothing by sex, healed scars, probe variation, age-scaled ageing.
+  - **Export:** archive paths, the manifest and hashes, include filters, missing files, the download summary.
+  - **Shots, request validation, storage, gallery and the quality report.**
 - `test/phantom/services/`: the Qwen and ridgegen clients, and the supervised Python processes.
 - `test/phantom_web/`
-  - **The pages:** form, services, run list and statuses, queued runs, sections, tiles, detail views with prompt
-    or ground truth, resume and cancel, the landing page and gallery.
-  - **The image controller.**
+  - **The pages:** the new-run form (traits, shot picks, summary), services, run list and statuses, queued
+    runs, sections, tiles, detail views with prompt or ground truth, resume, add shots and cancel, download
+    links, the landing page and gallery, and the layout (navigation, footer).
+  - **The controllers:** images (and `?download=1`), subject downloads (the ZIP itself), and the branded error
+    pages.
 
 `python_biometrics/tests/` (run with `.venv/bin/python -m pytest`) covers:
 
@@ -405,7 +534,10 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 ## Known issues and next steps
 
 - **Faces**
-  - Confirm the v3 prompts and the seam fix with a fresh run.
+  - Check the v4–v7 prompt changes on a larger set of renders: healed scars, probe pose and expression, the
+    aged probe across ages, and probe outfits.
+  - Record the model and service versions (Qwen checkpoint, torch/diffusers, ridgegen) with each image, so a
+    re-render can be checked against its stored SHA-256.
   - The ICAO crop should be tighter: chin to crown should fill about 75% of the image height.
   - Build ("heavy-set", "slim") is mostly ignored. This matters little for a head-and-shoulders image.
   - Identity consistency has only been checked by eye. Next, add a face-embedding check against the ABIS
@@ -418,9 +550,11 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   - Slaps: adjacent fingers can touch with hard seams, and the middle phalanx is a straight-edged patch. The
     diffusion renderer makes this more visible. Render plain fingers separately and fix the layout (plan phase 3).
   - Ground-truth minutiae angles point the opposite way from ANSI/INCITS 378 (`mindtct` differs by about 180°).
-  - Add WSQ compression and ANSI/NIST-ITL Type-4/14/15 packaging.
+  - Add WSQ compression and ANSI/NIST-ITL Type-4/14/15 packaging, and offer it in the download menu.
   - Latent prints are not generated yet.
-- **Later:** the storage abstraction (local folder or S3) and the database, as described in the plan.
+- **Downloads:** a whole run as one archive (one folder per person, one manifest).
+- **Later:** an S3 storage backend, and access control before the app is deployed anywhere shared (it has no
+  login, so anyone who can reach it can start runs and download).
 
 ## Caveats
 
@@ -442,19 +576,25 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom/biometrics/generator.ex`, `generator/` | Renders a subject: seeds, anchor conditioning, face and friction-ridge shots |
 | `lib/phantom/biometrics/{run,subject,image}.ex` | Ecto schemas for the `runs`, `subjects` and `images` tables |
 | `lib/phantom/biometrics/run_request.ex` | Validates the parameters of a new run |
+| `lib/phantom/biometrics/traits.ex` | The appearance a run fixes for everyone: validation, sampling options, display |
+| `lib/phantom/biometrics/export.ex` | One subject as a ZIP: file names, manifest, README, the streamed archive |
 | `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
 | `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
 | `lib/phantom/biometrics/gallery.ex` | Identities for the landing page gallery |
-| `lib/phantom/biometrics/face_attributes.ex` | Seeded person sampling and `describe/1` |
-| `lib/phantom/biometrics/face_prompts.ex` | Shot specs, prompt templates, prompt version |
+| `lib/phantom/biometrics/face_attributes.ex` | Seeded person sampling (with fixed traits), option lists, `describe/1` |
+| `lib/phantom/biometrics/face_prompts.ex` | Shot specs, prompt templates, probe variation, prompt version |
 | `lib/phantom/services/qwen.ex`, `ridgegen.ex` | HTTP clients for the two Python services |
 | `lib/phantom/services/python_process.ex` | Supervises both Python services as OS processes (`QwenProcess`, `RidgegenProcess`) |
 | `lib/phantom_web/live/landing_live.ex` | `/`: what Phantom is, and the gallery of identities |
-| `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form, the run rendering now, run list |
-| `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run` and `/:run/:subject`: subjects, live progress, detail view, resume/cancel |
+| `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form with traits and summary, the run rendering now, run list |
+| `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run` and `/:run/:subject`: subjects, live progress, detail view, resume, add shots, cancel, download menu |
+| `lib/phantom_web/components/layouts.ex`, `layouts/root.html.heex` | Page frame: header, navigation, footer, theme toggle, icons |
 | `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, statuses, progress bar, report |
-| `lib/phantom_web/controllers/image_controller.ex` | Serves image files and ground truth by image id |
+| `lib/phantom_web/controllers/image_controller.ex` | Serves image files (and single-image downloads) and ground truth by image id |
+| `lib/phantom_web/controllers/download_controller.ex` | Streams a subject's ZIP |
+| `lib/phantom_web/controllers/error_html.ex`, `error_html/` | Branded 404 and 500 pages |
+| `assets/css/app.css`, `priv/static/images/`, `priv/static/fonts/` | Brand: theme colours, the mark and icons, Inter (SIL OFL) |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
 | `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |

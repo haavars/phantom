@@ -24,8 +24,8 @@ a local ridge generator, both running as small local Python services that this a
    ```
 
    `mix phx.server` also starts `python_inference/server.py` for you (see `Phantom.Services.PythonProcess`) and stops it
-   on shutdown. Visit [`localhost:4000`](http://localhost:4000), which opens the biometrics page. The first
-   run downloads the face model, which takes a while.
+   on shutdown. Visit [`localhost:4000`](http://localhost:4000) for the overview and gallery, and **Runs** to start
+   one. The first run downloads the face model, which takes a while.
 
 If the inference service runs on another machine instead, set `QWEN_AUTOSTART=false` so this app doesn't
 also try to start its own copy, and point it at the other one:
@@ -38,35 +38,39 @@ QWEN_AUTOSTART=false QWEN_SERVICE_URL=http://your-host:8000 mix phx.server
 
 Each run generates synthetic subjects, fictional people:
 
-- **Faces:** mugshots, ICAO portraits and mated probe images, from Qwen-Image-2.1.
+- **Faces:** mugshots, ICAO portraits and mated probe images (re-booked, aged, with glasses, changed
+  appearance, each with its own slight pose and expression), from Qwen-Image-2.1.
 - **Friction ridges:** rolled fingerprints, slaps, full and writer's palms, and an FD-249 style tenprint card,
-  from a procedural CPU generator in [`python_biometrics/`](python_biometrics/README.md). Run its one-time
-  setup first: `cd python_biometrics && ./setup.sh`.
+  from the ridge generator in [`python_biometrics/`](python_biometrics/README.md): patterns on the CPU, rendered
+  as realistic ink prints by a diffusion model (or procedurally, as a fast CPU draft) and verified against their
+  ground truth with NIST tools. Run its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`
+  (leave out `--diffusion` without an NVIDIA GPU).
 
-All images of one subject show the same person, fingers and palms, and extra captures give mated pairs.
+All images of one subject show the same person, fingers and palms, and extra captures give mated pairs. A run
+can fix any appearance trait for all of its people (sex, age range, ancestry, hair, clothing, …) and leave the
+rest random per person.
 
 Start and browse runs at [`localhost:4000/biometrics`](http://localhost:4000/biometrics), or from IEx attached to
 the running app (`iex -S mix phx.server`):
 
 ```elixir
 Phantom.Biometrics.create_run(%{subjects: 5, shots: ["faces", "rolled", "slaps", "palms", "card"], captures: 2})
+Phantom.Biometrics.create_run(%{subjects: 10, traits: %{sex: "female", ancestry: "Northern European"}})
 ```
 
-Runs are queued and rendered one subject at a time by [Oban](https://oban.hexdocs.pm) jobs.
-Runs, subjects, images and their ground truth are stored in Postgres; the image files are written to
-`data/synthetic/biometrics/<run>/<subject>/`. The same seed reproduces the same subjects, and reusing `--run`
-resumes a run. The output is synthetic test data
-only; don't use it as evidence of matching accuracy or send it to live systems.
+Runs are queued and rendered one subject at a time by [Oban](https://oban.hexdocs.pm) jobs. Runs, subjects,
+images and their ground truth are stored in Postgres; the image files are written to
+`data/synthetic/biometrics/<run>/<subject>/`. The same seed reproduces the same subjects, **Resume** re-renders
+anything missing (including deleted files) from the stored seeds and prompts, and **Add shots** adds shots to an
+existing run.
+
+Each person downloads as a ZIP from their page: PNG images named by pose code or FGP/PLP, ground truth per
+print, and a `subject.json` manifest with seeds, prompts and SHA-256 hashes
+(`GET /biometrics/<run>/<subject>/download`).
+
+The output is synthetic test data only; don't use it as evidence of matching accuracy or send it to live
+systems.
 
 More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in
-[docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md).
-
-Ready to run in production? Please [check our deployment guides](https://phoenix.hexdocs.pm/deployment.html).
-
-## Learn more
-
-* Official website: https://www.phoenixframework.org/
-* Guides: https://phoenix.hexdocs.pm/overview.html
-* Docs: https://phoenix.hexdocs.pm
-* Forum: https://elixirforum.com/c/phoenix-forum
-* Source: https://github.com/phoenixframework/phoenix
+[docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md), and the fingerprint realism work in
+[docs/realistic-fingerprints-plan.md](docs/realistic-fingerprints-plan.md).

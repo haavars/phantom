@@ -1,7 +1,8 @@
 # Plan: Synthetic biometrics generator (faces, mugshots, fingerprints, tenprints, palmprints)
 
-Status: draft, 2026-09-23. Faces and friction ridges are implemented; see
-[`synthetic-biometrics.md`](synthetic-biometrics.md) for what exists today.
+Status: draft, 2026-09-23; updated 2026-09-24. Faces, friction ridges, Postgres storage, per-run traits and
+per-person downloads are implemented; see [`synthetic-biometrics.md`](synthetic-biometrics.md) for what exists
+today.
 
 ## 1. Goal
 
