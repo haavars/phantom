@@ -269,8 +269,11 @@ defmodule PhantomWeb.BiometricsComponents do
   }
 
   @doc "Short pattern class of a rolled finger record (W, LL, RL, A, TA), or nil."
-  def pattern_code(%{meta: %{"pattern" => pattern}}), do: Map.get(@pattern_codes, pattern)
+  def pattern_code(%{meta: %{"pattern" => pattern}}), do: pattern_abbrev(pattern)
   def pattern_code(_record), do: nil
+
+  @doc "Short form of a pattern class (`\"whorl\"` -> `\"W\"`), or nil."
+  def pattern_abbrev(pattern), do: Map.get(@pattern_codes, pattern)
 
   def pattern_name(pattern), do: pattern && String.replace(pattern, "_", " ")
 

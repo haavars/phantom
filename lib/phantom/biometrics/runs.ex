@@ -143,6 +143,7 @@ defmodule Phantom.Biometrics.Runs do
          id: data["id"],
          seed: data["seed"],
          description: data["description"],
+         attributes: data["attributes"] || %{},
          shots: Enum.map(data["shots"] || [], &shot_from_json/1)
        }}
     else

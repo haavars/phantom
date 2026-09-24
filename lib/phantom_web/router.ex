@@ -17,9 +17,8 @@ defmodule PhantomWeb.Router do
   scope "/", PhantomWeb do
     pipe_through :browser
 
-    # The biometrics harness is the app. GenerateLive (plain Qwen text-to-image)
-    # is kept but not routed.
-    get "/", RedirectController, :biometrics
+    # GenerateLive (plain Qwen text-to-image) is kept but not routed.
+    live "/", LandingLive, :index
     live "/biometrics", BiometricsLive, :index
     live "/biometrics/:run", BiometricsRunLive, :show
 

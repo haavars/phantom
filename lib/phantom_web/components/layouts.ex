@@ -39,16 +39,23 @@ defmodule PhantomWeb.Layouts do
     ~H"""
     <header class="border-b border-base-300/70 bg-base-100/80 backdrop-blur supports-[backdrop-filter]:bg-base-100/60 sticky top-0 z-30">
       <div class="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
-        <.link navigate={~p"/biometrics"} class="flex items-center gap-2 font-semibold tracking-tight">
+        <.link navigate={~p"/"} class="flex items-center gap-2 font-semibold tracking-tight">
           <img src={~p"/images/logo.svg"} width="28" alt="" /> Phantom
         </.link>
         <nav class="flex items-center gap-1 text-sm">
+          <.link
+            navigate={~p"/"}
+            id="nav-home"
+            class="rounded-md px-3 py-1.5 text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
+          >
+            Overview
+          </.link>
           <.link
             navigate={~p"/biometrics"}
             id="nav-biometrics"
             class="rounded-md px-3 py-1.5 text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
           >
-            Biometrics
+            Runs
           </.link>
         </nav>
         <div class="ml-auto"><.theme_toggle /></div>
