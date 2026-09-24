@@ -4,6 +4,7 @@ defmodule Phantom.BiometricsTest do
   import Phantom.BiometricsFixtures
 
   alias Phantom.Biometrics
+  alias Phantom.Biometrics.Storage
   alias Phantom.Biometrics.Workers.GenerateSubject
 
   describe "reading runs" do
@@ -93,6 +94,45 @@ defmodule Phantom.BiometricsTest do
       assert {:ok, %{status: :finished, completed_subjects: 3}} = Biometrics.get_run(name)
     end
 
+    test "resume queues subjects whose image files were deleted" do
+      name = create_run(subjects: 2)
+      {:ok, run} = Biometrics.get_run(name)
+      assert Biometrics.incomplete_positions(run) == []
+
+      [_first, second] = run.subjects
+      %{storage_key: key} = Enum.find(second.images, &(&1.shot == "mugshot_left_profile"))
+      File.rm!(Path.join(Storage.Local.root(), key))
+      assert Biometrics.incomplete_positions(run) == [2]
+
+      assert {:ok, %{status: :queued}} = Biometrics.resume_run(run)
+      assert [%{args: %{"position" => 2}}] = all_enqueued(worker: GenerateSubject)
+      # Incomplete until it's rendered again, so the run can't finish early.
+      assert {:ok, %{completed_subjects: 1}} = Biometrics.get_run(name)
+
+      render_queued()
+      assert Storage.exists?(key)
+      assert {:ok, %{status: :finished, completed_subjects: 2}} = Biometrics.get_run(name)
+    end
+
+    test "a run finishes when the last resumed subject is done, not the first" do
+      name = create_run(subjects: 3)
+      {:ok, run} = Biometrics.get_run(name)
+
+      for subject <- run.subjects,
+          image <- subject.images,
+          subject.position > 1,
+          do: File.rm!(Path.join(Storage.Local.root(), image.storage_key))
+
+      assert {:ok, _run} = Biometrics.resume_run(run)
+      assert [_, _] = all_enqueued(worker: GenerateSubject)
+
+      assert :ok = perform_job(GenerateSubject, %{run_id: run.id, position: 2})
+      assert {:ok, %{status: :running, completed_subjects: 2}} = Biometrics.get_run(name)
+
+      render_queued()
+      assert {:ok, %{status: :finished, completed_subjects: 3}} = Biometrics.get_run(name)
+    end
+
     test "a subject is queued once while its job is pending" do
       {:ok, run} = Biometrics.create_run(%{subjects: 1, shots: ["rolled_01"]})
       {:ok, _run} = Biometrics.resume_run(run)
@@ -112,6 +152,74 @@ defmodule Phantom.BiometricsTest do
     test "records why a run failed" do
       {:ok, run} = Biometrics.create_run(%{subjects: 1, shots: ["rolled_01"]})
       assert {:ok, %{status: :failed, error: "boom"}} = Biometrics.fail_run(run.id, "boom")
+    end
+  end
+
+  describe "add_shots/2" do
+    test "adds shots to every subject and renders only those" do
+      name = create_run(subjects: 2)
+      {:ok, run} = Biometrics.get_run(name)
+
+      before =
+        for subject <- run.subjects,
+            image <- subject.images,
+            into: %{},
+            do: {image.id, image.sha256}
+
+      assert {:ok, %{status: :queued} = queued} = Biometrics.add_shots(run, ["probe_glasses"])
+      assert queued.shots == ["mugshot_frontal", "mugshot_left_profile", "probe_glasses"]
+      assert [_, _] = all_enqueued(worker: GenerateSubject)
+
+      render_queued()
+      assert {:ok, %{status: :finished, subjects: subjects}} = Biometrics.get_run(name)
+
+      for subject <- subjects do
+        assert Enum.map(subject.images, & &1.shot) ==
+                 ["mugshot_frontal", "mugshot_left_profile", "probe_glasses"]
+
+        assert Enum.all?(subject.images, &(&1.status == :ok))
+      end
+
+      after_add =
+        for subject <- subjects, image <- subject.images, into: %{}, do: {image.id, image.sha256}
+
+      assert Map.take(after_add, Map.keys(before)) == before
+    end
+
+    test "gives friction-ridge groups the run's captures, after the ridge shots it has" do
+      name = create_run(subjects: 1, shots: ["rolled_01"], captures: 2)
+      {:ok, run} = Biometrics.get_run(name)
+
+      assert {:ok, queued} = Biometrics.add_shots(run, ["slaps", "mugshot_left_profile"])
+
+      assert queued.shots ==
+               ~w(mugshot_frontal mugshot_left_profile rolled_01 slap_13 slap_14 slap_15
+                  rolled_01_c2 slap_13_c2 slap_14_c2 slap_15_c2)
+
+      render_queued()
+      assert {:ok, %{status: :finished, subjects: [subject]}} = Biometrics.get_run(name)
+      assert length(subject.images) == 10
+    end
+
+    test "rejects unknown shots, no shots and runs that are rendering" do
+      name = create_run(subjects: 1)
+      {:ok, run} = Biometrics.get_run(name)
+
+      assert {:error, "Unknown shots: selfie"} = Biometrics.add_shots(run, ["selfie"])
+      assert {:error, "Pick at least one shot."} = Biometrics.add_shots(run, [])
+
+      assert {:error, "The run is still rendering."} =
+               Biometrics.add_shots(%{run | status: :running}, ["probe_glasses"])
+
+      refute_enqueued(worker: GenerateSubject)
+    end
+
+    test "leaves a run that already has every shot alone" do
+      name = create_run(subjects: 1)
+      {:ok, run} = Biometrics.get_run(name)
+
+      assert {:ok, %{status: :finished}} = Biometrics.add_shots(run, ["mugshot_left_profile"])
+      refute_enqueued(worker: GenerateSubject)
     end
   end
 

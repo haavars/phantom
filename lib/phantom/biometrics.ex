@@ -186,40 +186,74 @@ defmodule Phantom.Biometrics do
   end
 
   @doc """
-  Queues the subjects of a cancelled, failed or grown run that aren't done.
-  Their images already rendered are kept, and the rest are rendered with the
-  same seeds.
+  Queues the subjects of a run that are missing an image (see
+  `incomplete_positions/1`): the rest of a cancelled, failed or grown run,
+  shots that failed, and images whose files were deleted. Images already
+  stored are kept, and the rest are rendered again from the seeds and prompts
+  they were first rendered with.
   """
   def resume_run(%Run{} = run) do
-    run = Repo.preload(run, [subjects: :images], force: true)
-
-    done =
-      for subject <- run.subjects,
-          subject.completed_at && Enum.all?(subject.images, &stored?/1),
-          do: subject.position
-
-    case Enum.reject(1..run.subject_count//1, &(&1 in done)) do
+    case incomplete_positions(run) do
       [] -> finish_run(run)
       positions -> queue(run, %{}, positions)
     end
   end
 
+  @doc """
+  Adds `shots` (shot ids and group names, as `create_run/1` takes them) to a
+  run that isn't rendering, and queues its subjects to render them.
+  Friction-ridge shots get the run's captures, and face shots bring the anchor
+  when the run has none. Seeds are derived per shot, so a shot added later
+  comes out as it would have in the first run:
+
+      Phantom.Biometrics.add_shots(run, ["probe_glasses"])
+
+  Returns `{:ok, run}` or `{:error, message}`.
+  """
+  def add_shots(%Run{} = run, shots) do
+    with :ok <- if(Run.active?(run), do: {:error, "The run is still rendering."}, else: :ok),
+         :ok <- if(shots == [], do: {:error, "Pick at least one shot."}, else: :ok),
+         {:ok, new} <- Shots.expand(shots, run.captures),
+         {:ok, shots} <- Shots.expand(run.shots ++ new) do
+      case incomplete_positions(%{run | shots: shots}) do
+        [] -> {:ok, run}
+        positions -> queue(run, %{shots: shots}, positions)
+      end
+    end
+  end
+
+  @doc """
+  Positions of the subjects of `run` without a stored image of every one of
+  its shots, including subjects not rendered yet.
+  """
+  def incomplete_positions(%Run{} = run) do
+    subjects = Repo.all(from s in Subject, where: s.run_id == ^run.id, preload: :images)
+    done = for subject <- subjects, complete?(subject, run.shots), do: subject.position
+    Enum.reject(1..run.subject_count//1, &(&1 in done))
+  end
+
+  defp complete?(subject, shots) do
+    images = Map.new(subject.images, &{&1.shot, &1})
+    not is_nil(subject.completed_at) and Enum.all?(shots, &stored?(images[&1]))
+  end
+
   defp stored?(image), do: Image.rendered?(image) and Storage.exists?(image.storage_key)
 
+  # Queued subjects count as incomplete until they're rendered again, so the
+  # run finishes when the last of them is done, not the first.
   defp queue(run, attrs, positions) do
-    positions
-    |> Enum.reduce(Multi.insert_or_update(Multi.new(), :run, Run.queue_changeset(run, attrs)), fn
-      position, multi ->
-        Oban.insert(
-          Oban,
-          multi,
-          {:job, position},
-          fn %{run: run} ->
-            GenerateSubject.new(%{run_id: run.id, position: position})
-          end,
-          []
-        )
-    end)
+    positions = Enum.to_list(positions)
+
+    Multi.new()
+    |> Multi.insert_or_update(:run, Run.queue_changeset(run, attrs))
+    |> Multi.update_all(
+      :reopened,
+      fn %{run: run} ->
+        from s in Subject, where: s.run_id == ^run.id and s.position in ^positions
+      end,
+      set: [completed_at: nil]
+    )
+    |> then(fn multi -> Enum.reduce(positions, multi, &queue_subject/2) end)
     |> Repo.transaction()
     |> case do
       {:ok, %{run: run}} ->
@@ -229,6 +263,16 @@ defmodule Phantom.Biometrics do
       {:error, :run, changeset, _changes} ->
         {:error, changeset}
     end
+  end
+
+  defp queue_subject(position, multi) do
+    Oban.insert(
+      Oban,
+      multi,
+      {:job, position},
+      fn %{run: run} -> GenerateSubject.new(%{run_id: run.id, position: position}) end,
+      []
+    )
   end
 
   @doc "Cancels a run's queued and running subject jobs. Images already rendered are kept."
@@ -264,14 +308,21 @@ defmodule Phantom.Biometrics do
   @doc """
   Records that the subject at `position` of `run` is being rendered, with
   `attrs` (`:seed`, `:description`, `:attributes`), and marks the run running.
-  Returns the subject with the images it already has.
+  A subject rendered before keeps the values it has, so it stays the same
+  person even if the code deriving them has changed since. Returns the
+  subject with the images it already has.
   """
   def start_subject(%Run{} = run, position, attrs) do
     if run.status == :queued, do: update_status(run, :running)
 
     subject =
-      (Repo.get_by(Subject, run_id: run.id, position: position) ||
-         %Subject{run_id: run.id, position: position, name: Subject.name(position)})
+      Repo.get_by(Subject, run_id: run.id, position: position) ||
+        %Subject{run_id: run.id, position: position, name: Subject.name(position)}
+
+    attrs = Map.filter(attrs, fn {key, _value} -> Map.get(subject, key) in [nil, %{}] end)
+
+    subject =
+      subject
       |> Ecto.Changeset.change(Map.put(attrs, :completed_at, nil))
       |> Repo.insert_or_update!()
       |> Repo.preload(:images, force: true)

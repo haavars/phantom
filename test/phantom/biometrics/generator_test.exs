@@ -107,6 +107,61 @@ defmodule Phantom.Biometrics.GeneratorTest do
     assert {:ok, %{status: :finished}} = Biometrics.get_run(run.name)
   end
 
+  test "renders deleted images again from their stored prompt, seed and attributes" do
+    stub_faces(self())
+    run = generate(%{run: unique_run_name("stored"), seed: 3, subjects: 1, shots: ["probe_aged"]})
+    assert_received {:render, _params, []}
+    assert_received {:render, _params, [_anchor]}
+
+    # As if the prompt templates and attribute lists had changed since.
+    probe = image(run, "subject_001", "probe_aged")
+    probe |> Ecto.Changeset.change(prompt: "the prompt it was rendered with") |> Repo.update!()
+    File.rm!(Path.join(Storage.Local.root(), probe.storage_key))
+
+    [subject] = run.subjects
+    attributes = Map.put(subject.attributes, "clothing", "a stored orange boiler suit")
+    subject |> Ecto.Changeset.change(attributes: attributes) |> Repo.update!()
+
+    {:ok, _run} = Biometrics.add_shots(run, ["probe_glasses"])
+    render_queued()
+
+    assert_received {:render, %{"prompt" => "the prompt it was rendered with", "seed" => seed}, _}
+    assert seed == Integer.to_string(probe.seed)
+
+    # The new shot is built from the stored attributes.
+    assert_received {:render, %{"prompt" => glasses}, [@anchor_png]}
+    assert glasses =~ "glasses"
+    refute_received {:render, _params, _references}
+
+    {:ok, %{subjects: [subject]}} = Biometrics.get_run(run.name)
+    assert subject.attributes == attributes
+    assert image(run, "subject_001", "probe_glasses").prompt == glasses
+  end
+
+  test "a shot added later matches the same shot rendered with the run" do
+    stub_faces(self())
+
+    added =
+      generate(%{run: unique_run_name("later"), seed: 11, subjects: 1, shots: ["probe_aged"]})
+
+    {:ok, _run} = Biometrics.add_shots(added, ["probe_glasses"])
+    render_queued()
+
+    upfront =
+      generate(%{
+        run: unique_run_name("upfront"),
+        seed: 11,
+        subjects: 1,
+        shots: ["probe_aged", "probe_glasses"]
+      })
+
+    for shot <- ["mugshot_frontal", "probe_aged", "probe_glasses"] do
+      later = image(added, "subject_001", shot)
+      first = image(upfront, "subject_001", shot)
+      assert {later.seed, later.prompt, later.width} == {first.seed, first.prompt, first.width}
+    end
+  end
+
   test "skips conditioned shots when the anchor fails" do
     stub_qwen(generate: &Plug.Conn.send_resp(&1, 500, "boom"))
 

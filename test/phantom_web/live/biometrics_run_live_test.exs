@@ -117,6 +117,48 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#run-status")
   end
 
+  test "offers to resume a finished run with deleted images", %{conn: conn, run: run} do
+    {:ok, %{subjects: [subject | _]}} = Biometrics.get_run(run)
+    [image | _] = subject.images
+    File.rm!(Path.join(Phantom.Biometrics.Storage.Local.root(), image.storage_key))
+
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+    assert has_element?(view, "#missing-images", "1 subject is missing images")
+
+    view |> element("#resume-run") |> render_click()
+    assert has_element?(view, "#run-status", "queued")
+    refute has_element?(view, "#missing-images")
+
+    render_queued()
+    refute has_element?(view, "#resume-run")
+    assert Phantom.Biometrics.Storage.exists?(image.storage_key)
+  end
+
+  test "adds shots to a finished run", %{conn: conn, run: run} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+    refute has_element?(view, "#add-shots-form")
+
+    view |> element("#add-shots") |> render_click()
+    # Shots the run has aren't offered again.
+    refute has_element?(view, "#add-mugshot_left_profile")
+    assert has_element?(view, "#add-probe_glasses")
+    assert has_element?(view, "#add-slaps")
+
+    view |> form("#add-shots-form") |> render_submit(%{add: %{shots: [""]}})
+    assert has_element?(view, "#add-shots-error", "Pick at least one shot.")
+
+    view |> form("#add-shots-form") |> render_submit(%{add: %{shots: ["", "probe_glasses"]}})
+    refute has_element?(view, "#add-shots-form")
+    refute has_element?(view, "#add-shots")
+    assert has_element?(view, "#run-status", "queued")
+    assert has_element?(view, "#tile-subject_001-probe_glasses")
+
+    render_queued()
+    assert has_element?(view, "#tile-subject_001-probe_glasses img")
+    assert has_element?(view, "#tile-subject_002-probe_glasses img")
+    assert has_element?(view, "#add-shots")
+  end
+
   test "redirects to the run list for unknown runs", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/biometrics"}}} = live(conn, ~p"/biometrics/missing")
   end

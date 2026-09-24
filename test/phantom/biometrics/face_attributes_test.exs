@@ -8,6 +8,17 @@ defmodule Phantom.Biometrics.FaceAttributesTest do
     refute FaceAttributes.sample(1234) == FaceAttributes.sample(1235)
   end
 
+  test "attributes read back from how a subject stores them" do
+    for seed <- 1..50 do
+      attrs = FaceAttributes.sample(seed)
+      stored = FaceAttributes.to_map(attrs)
+
+      assert %{"sex" => sex} = stored
+      assert is_binary(sex)
+      assert FaceAttributes.from_map(stored) == attrs
+    end
+  end
+
   test "respects sex, age and ancestry options" do
     for seed <- 1..50 do
       attrs =

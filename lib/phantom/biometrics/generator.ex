@@ -9,6 +9,11 @@ defmodule Phantom.Biometrics.Generator do
   (`Generator.FrictionRidges`). So rendering a subject again gives the same
   person, and images already stored are kept rather than rendered again.
 
+  What was derived is stored, and rendering a subject again starts from
+  there: its seed and attributes, and the prompt, seed and size of each face
+  shot. So a deleted image comes back from the same inputs even when the
+  attribute lists or prompt templates have changed since.
+
   Face shots start with the anchor (the frontal mugshot) rendered from text;
   the other face shots are conditioned on it.
   """
@@ -19,21 +24,25 @@ defmodule Phantom.Biometrics.Generator do
 
   @doc "Renders the subject at `position` (1-based) of `run`. Returns the completed subject."
   def generate_subject(%Run{} = run, position) do
-    seed = derive_seed(run.seed, position)
-    attributes = FaceAttributes.sample(seed)
+    sampled = run.seed |> derive_seed(position) |> FaceAttributes.sample()
 
+    # Only used for a subject that hasn't been rendered before.
     subject =
       Biometrics.start_subject(run, position, %{
-        seed: seed,
-        description: FaceAttributes.describe(attributes),
-        # Stored as JSON: string keys, as it reads back.
-        attributes: attributes |> Jason.encode!() |> Jason.decode!()
+        seed: sampled.seed,
+        description: FaceAttributes.describe(sampled),
+        attributes: FaceAttributes.to_map(sampled)
       })
 
+    attributes = FaceAttributes.from_map(subject.attributes)
     stored = Map.new(subject.images, &{&1.shot, &1})
 
     Enum.reduce(run.shots, nil, fn shot, anchor ->
-      image = kept(stored[shot]) || render(Shots.spec(shot), run, subject, attributes, anchor)
+      previous = stored[shot]
+
+      image =
+        kept(previous) || render(Shots.spec(shot), run, subject, attributes, anchor, previous)
+
       if shot == FacePrompts.anchor_shot() and Image.rendered?(image), do: image, else: anchor
     end)
 
@@ -44,12 +53,12 @@ defmodule Phantom.Biometrics.Generator do
     if Image.rendered?(image) and Storage.exists?(image.storage_key), do: image
   end
 
-  defp render(spec, run, subject, attributes, anchor) do
+  defp render(spec, run, subject, attributes, anchor, previous) do
     {duration_ms, {fields, result}} =
       :timer.tc(
         fn ->
           case spec.modality do
-            :face -> Faces.render(spec, run, subject, attributes, anchor)
+            :face -> Faces.render(spec, run, subject, attributes, anchor, previous)
             :ridge -> FrictionRidges.render(spec, run, subject)
           end
         end,

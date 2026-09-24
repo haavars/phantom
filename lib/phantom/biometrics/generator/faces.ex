@@ -12,9 +12,12 @@ defmodule Phantom.Biometrics.Generator.Faces do
   Renders the face shot `spec` of `subject`. Returns `{fields, result}`: the
   image's fields, and `{:ok, png, %{}}`, `{:error, message}`, or
   `{:skipped, message}` when the anchor it needs failed.
+
+  A shot rendered before (`previous`, its image record) is rendered again
+  from its stored prompt, seed and size rather than today's templates.
   """
-  def render(spec, run, subject, attributes, anchor) do
-    {width, height} = spec.size
+  def render(spec, run, subject, attributes, anchor, previous) do
+    {width, height} = inputs(previous, :size) || spec.size
 
     fields = %{
       shot: spec.id,
@@ -23,8 +26,8 @@ defmodule Phantom.Biometrics.Generator.Faces do
       capture: 0,
       width: width,
       height: height,
-      seed: Generator.derive_seed(subject.seed, spec.id),
-      prompt: FacePrompts.prompt(spec.id, attributes),
+      seed: inputs(previous, :seed) || Generator.derive_seed(subject.seed, spec.id),
+      prompt: inputs(previous, :prompt) || FacePrompts.prompt(spec.id, attributes),
       reference_id: anchor && anchor.id
     }
 
@@ -43,6 +46,13 @@ defmodule Phantom.Biometrics.Generator.Faces do
 
     {fields, result}
   end
+
+  defp inputs(%{width: width, height: height}, :size)
+       when is_integer(width) and is_integer(height),
+       do: {width, height}
+
+  defp inputs(%{} = previous, key) when key in [:seed, :prompt], do: Map.get(previous, key)
+  defp inputs(_previous, _key), do: nil
 
   defp references(%{anchor?: true}, _anchor), do: {:ok, []}
   defp references(_spec, nil), do: {:skipped, "anchor shot failed"}

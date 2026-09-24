@@ -3,7 +3,8 @@ defmodule PhantomWeb.BiometricsRunLive do
   One synthetic-biometrics run: every subject with its face and friction-ridge
   shots, filled in live while the run is active, plus a detail view
   (`?subject=...&shot=...`) with the full image and its prompt or ground truth.
-  Incomplete or partly failed runs can be resumed.
+  A run that isn't rendering can be resumed when a subject is missing an
+  image (not rendered, failed, or its file deleted), and can get more shots.
 
   `/biometrics/:run/:subject` shows one subject (one synthetic identity) on its
   own, with every image of it; the detail view there is `?shot=...`.
@@ -14,7 +15,7 @@ defmodule PhantomWeb.BiometricsRunLive do
   import PhantomWeb.BiometricsComponents
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{Gallery, Run, Shots}
+  alias Phantom.Biometrics.{FacePrompts, Gallery, Run, Shots}
 
   @impl true
   def mount(%{"run" => name} = params, _session, socket) do
@@ -30,8 +31,10 @@ defmodule PhantomWeb.BiometricsRunLive do
         |> assign(:focus, focus)
         |> assign(:focused, focused)
         |> assign(:selected, nil)
+        |> assign(:adding?, false)
+        |> assign(:add_form, to_form(%{}, as: :add))
+        |> assign(:add_error, nil)
         |> assign_run(run)
-        |> assign(:has_failures?, failures?(run.subjects))
         |> stream_configure(:subjects, dom_id: &"subjects-#{&1.name}")
         |> stream(:subjects, in_focus(run.subjects, focus))
 
@@ -51,11 +54,30 @@ defmodule PhantomWeb.BiometricsRunLive do
     end
   end
 
-  # The run without its subjects (they're streamed), and where it is if it's rendering.
+  # The run without its subjects (they're streamed), where it is if it's
+  # rendering, and otherwise which subjects are missing images (which looks
+  # for every image's file) and which shots it could still get.
   defp assign_run(socket, %Run{} = run) do
+    active? = Run.active?(run)
+
     socket
     |> assign(:run, %{run | subjects: []})
     |> assign(:progress, if(run.status == :running, do: Biometrics.progress(run)))
+    |> assign(:incomplete, if(active?, do: [], else: Biometrics.incomplete_positions(run)))
+    |> assign(:addable, addable(run))
+    |> then(&if(active?, do: assign(&1, :adding?, false), else: &1))
+  end
+
+  # Face shots the run doesn't have, and friction-ridge groups it doesn't have
+  # every shot of.
+  defp addable(run) do
+    groups =
+      for {group, name} <- Shots.ridge_groups(),
+          {:ok, ids} = Shots.expand([group], run.captures),
+          not Enum.all?(ids, &(&1 in run.shots)),
+          do: {group, name}
+
+    %{faces: FacePrompts.shots() -- run.shots, groups: groups}
   end
 
   @impl true
@@ -86,6 +108,30 @@ defmodule PhantomWeb.BiometricsRunLive do
   def handle_event("resume", _params, socket) do
     {:ok, run} = Biometrics.resume_run(socket.assigns.run)
     {:noreply, assign_run(socket, run)}
+  end
+
+  def handle_event("toggle-add-shots", _params, socket) do
+    {:noreply, socket |> update(:adding?, &(not &1)) |> assign(:add_error, nil)}
+  end
+
+  def handle_event("add-shots", params, socket) do
+    shots = params |> get_in(["add", "shots"]) |> List.wrap() |> Enum.reject(&(&1 == ""))
+
+    case Biometrics.add_shots(socket.assigns.run, shots) do
+      {:ok, run} ->
+        {:noreply,
+         socket
+         |> assign(adding?: false, add_error: nil)
+         |> assign_run(run)
+         |> reload()
+         |> put_flash(:info, "Added #{Enum.map_join(shots, ", ", &shot_or_group_name/1)}.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, assign(socket, :add_error, message)}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, assign(socket, :add_error, "Couldn't queue the run.")}
+    end
   end
 
   def handle_event("cancel", _params, socket) do
@@ -149,7 +195,6 @@ defmodule PhantomWeb.BiometricsRunLive do
     socket =
       socket
       |> insert_subject(subject)
-      |> update(:has_failures?, &(&1 or failures?([subject])))
       |> assign_run(socket.assigns.run)
 
     {:noreply, socket}
@@ -164,7 +209,6 @@ defmodule PhantomWeb.BiometricsRunLive do
     case Biometrics.get_run(socket.assigns.run.name) do
       {:ok, run} ->
         socket
-        |> assign(:has_failures?, failures?(run.subjects))
         |> stream(:subjects, in_focus(run.subjects, socket.assigns.focus), reset: true)
 
       {:error, :not_found} ->
@@ -181,14 +225,20 @@ defmodule PhantomWeb.BiometricsRunLive do
   defp flash_outcome(socket, %Run{status: :failed, error: error}),
     do: put_flash(socket, :error, "Run failed: #{error}")
 
-  defp failures?(subjects) do
-    Enum.any?(subjects, fn subject ->
-      Enum.any?(subject.images, &(&1.status in [:error, :skipped]))
-    end)
+  defp resumable?(run, incomplete), do: not Run.active?(run) and incomplete != []
+
+  defp can_add_shots?(run, addable),
+    do: not Run.active?(run) and (addable.faces != [] or addable.groups != [])
+
+  defp shot_or_group_name(shot) do
+    case List.keyfind(Shots.ridge_groups(), shot, 0) do
+      {_group, name} -> String.downcase(name)
+      nil -> shot_label(shot)
+    end
   end
 
-  defp resumable?(run, has_failures?),
-    do: not Run.active?(run) and (run.completed_subjects < run.subject_count or has_failures?)
+  defp subjects_count(1), do: "1 subject"
+  defp subjects_count(n), do: "#{n} subjects"
 
   defp active_subject_id(%{subject: %{name: name}}), do: name
   defp active_subject_id(_progress), do: nil
@@ -378,15 +428,129 @@ defmodule PhantomWeb.BiometricsRunLive do
             Cancel run
           </.action_button>
           <.action_button
-            :if={resumable?(@run, @has_failures?)}
+            :if={can_add_shots?(@run, @addable)}
+            variant="secondary"
+            id="add-shots"
+            phx-click="toggle-add-shots"
+            aria-expanded={to_string(@adding?)}
+            aria-controls="add-shots-form"
+          >
+            <.icon name="hero-plus-mini" class="size-4" /> Add shots
+          </.action_button>
+          <.action_button
+            :if={resumable?(@run, @incomplete)}
             variant="primary"
             id="resume-run"
             phx-click="resume"
+            title={"#{subjects_count(length(@incomplete))} missing images"}
           >
             Resume
           </.action_button>
         </div>
       </div>
+
+      <p
+        :if={!@focused and resumable?(@run, @incomplete) and @run.status == :finished}
+        id="missing-images"
+        class="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm"
+      >
+        <.icon name="hero-exclamation-triangle-mini" class="size-4 shrink-0 text-warning" />
+        {subjects_count(length(@incomplete))} {if length(@incomplete) == 1, do: "is", else: "are"} missing images (failed or deleted). Resume renders them again from their stored seeds and prompts.
+      </p>
+
+      <.form
+        :if={!@focused and @adding? and can_add_shots?(@run, @addable)}
+        for={@add_form}
+        id="add-shots-form"
+        phx-submit="add-shots"
+        class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm"
+      >
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 class="text-sm font-semibold">Add shots</h2>
+          <p class="text-xs text-base-content/60">
+            Every subject gets them, with the seeds they would have had in the first run.
+            Images already rendered are kept.
+          </p>
+        </div>
+
+        <input type="hidden" name="add[shots][]" value="" />
+
+        <div class="mt-4 grid gap-6 md:grid-cols-2">
+          <fieldset :if={@addable.faces != []}>
+            <legend class="mb-2 flex w-full items-center justify-between text-sm font-medium">
+              <span>Face</span>
+              <span class="text-xs font-normal text-base-content/50">
+                Qwen-Image-2.1 · {@run.steps} steps
+              </span>
+            </legend>
+            <div class="space-y-0.5">
+              <label
+                :for={shot <- @addable.faces}
+                for={"add-#{shot}"}
+                class="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-1.5 transition hover:bg-base-200"
+              >
+                <input
+                  type="checkbox"
+                  id={"add-#{shot}"}
+                  name="add[shots][]"
+                  value={shot}
+                  class="mt-0.5 size-4 rounded border-base-300 accent-[var(--color-primary)]"
+                />
+                <span class="min-w-0">
+                  <span class="flex items-center gap-2 text-sm">
+                    {shot_label(shot)} <.pos_badge pos={FacePrompts.spec(shot).pos} shot={shot} />
+                    <span :if={anchor?(shot)} class="text-xs text-base-content/50">
+                      added with any face shot
+                    </span>
+                  </span>
+                  <span class="block text-xs text-base-content/60">{shot_description(shot)}</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset :if={@addable.groups != []}>
+            <legend class="mb-2 flex w-full items-center justify-between text-sm font-medium">
+              <span>Friction ridge</span>
+              <span class="text-xs font-normal text-base-content/50">
+                {@run.renderer} · {@run.captures} {if @run.captures == 1,
+                  do: "capture",
+                  else: "captures"}
+              </span>
+            </legend>
+            <div class="space-y-0.5">
+              <label
+                :for={{group, name} <- @addable.groups}
+                for={"add-#{group}"}
+                class="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-1.5 transition hover:bg-base-200"
+              >
+                <input
+                  type="checkbox"
+                  id={"add-#{group}"}
+                  name="add[shots][]"
+                  value={group}
+                  class="mt-0.5 size-4 rounded border-base-300 accent-[var(--color-primary)]"
+                />
+                <span class="min-w-0">
+                  <span class="block text-sm">{name}</span>
+                  <span class="block text-xs text-base-content/60">{group_description(group)}</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <p :if={@add_error} id="add-shots-error" class="mt-3 text-sm text-error">{@add_error}</p>
+
+        <div class="mt-4 flex justify-end gap-2 border-t border-base-300 pt-4">
+          <.action_button type="button" variant="secondary" phx-click="toggle-add-shots">
+            Cancel
+          </.action_button>
+          <.action_button type="submit" variant="primary" id="submit-add-shots">
+            Add and render
+          </.action_button>
+        </div>
+      </.form>
 
       <div
         :if={@progress}

@@ -220,6 +220,24 @@ defmodule Phantom.Biometrics.FaceAttributes do
     }
   end
 
+  @doc "The attributes as a subject stores them: a JSON map with string keys."
+  def to_map(%__MODULE__{} = attrs), do: attrs |> Jason.encode!() |> Jason.decode!()
+
+  @doc "Attributes stored with `to_map/1`, back as a struct. Unknown keys are ignored."
+  def from_map(%{} = map) do
+    fields =
+      for key <- Map.keys(Map.from_struct(%__MODULE__{})),
+          Map.has_key?(map, Atom.to_string(key)),
+          do: {key, Map.fetch!(map, Atom.to_string(key))}
+
+    attrs = struct!(__MODULE__, fields)
+    %{attrs | sex: sex(attrs.sex), marks: attrs.marks || []}
+  end
+
+  defp sex("female"), do: :female
+  defp sex("male"), do: :male
+  defp sex(sex), do: sex
+
   @doc """
   Describes the person in one or two sentences, e.g. "a 34-year-old man of West
   African descent with dark brown skin, ...".
