@@ -593,7 +593,11 @@ reader never sees half a file.
     decode in one pass.
   - If an untiled decode runs out of GPU memory, it is retried once with tiling and the same seed.
   - The change takes effect after `mix phx.server` is restarted.
-
+- **`reference_resolution` in `python_inference/server.py`:** the pipeline resizes every reference image to about
+  1024² (about 4,096 tokens), however small it is. Three or more references then run out of memory on a 24 GB
+  GPU (HTTP 500). The optional form field sets that size for references only (256–1024); at 512, five 224 px
+  pool faces render in about 53 s. Phantom's own shots don't send it, so they're unchanged. Used by the
+  face-source experiment ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md)).
 
 ## Performance
 

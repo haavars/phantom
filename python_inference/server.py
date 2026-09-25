@@ -2,7 +2,7 @@
 
 Loads the model once at startup and serves POST /generate (multipart/form-data:
 `prompt`, `width`, `height`, `steps`, `seed`, and up to 10 `images` files for
-image-conditioned generation), returning a PNG. The Phoenix app
+image-conditioned generation, optionally `reference_resolution`), returning a PNG. The Phoenix app
 (Phantom.ImageGeneration) calls this over HTTP on localhost.
 
 Run with:
@@ -84,6 +84,7 @@ async def generate(
     steps: int = Form(40),
     seed: Optional[int] = Form(None),
     images: List[UploadFile] = File(default=[]),
+    reference_resolution: Optional[int] = Form(None),
 ):
     if _pipe is None:
         detail = _load_error or "model is still loading, try again shortly"
@@ -95,6 +96,9 @@ async def generate(
 
     if not 1 <= steps <= 100:
         raise HTTPException(status_code=400, detail="steps must be between 1 and 100")
+
+    if reference_resolution is not None and not 256 <= reference_resolution <= 1024:
+        raise HTTPException(status_code=400, detail="reference_resolution must be between 256 and 1024")
 
     if len(images) > MAX_REFERENCE_IMAGES:
         raise HTTPException(
@@ -132,6 +136,12 @@ async def generate(
             # QwenImage21Pipeline accepts a single image or a list of up to
             # 10 reference/condition images for image-conditioned generation.
             kwargs["image"] = reference_images
+            # Each reference is resized to about output_resolution² (1024² by
+            # default, about 4096 tokens), whatever its own size. Small
+            # references, several at once, fit in VRAM only at a lower one;
+            # the output size is always passed, so this affects only them.
+            if reference_resolution is not None:
+                kwargs["output_resolution"] = reference_resolution
 
         def call(tiled):
             if tiled:
