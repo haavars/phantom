@@ -14,7 +14,9 @@ defmodule Phantom.Biometrics.FacePrompts do
     * ICAO portraits are 7:9 (896×1152), the 35×45 mm passport-photo aspect
     * the low-resolution probe is rendered as a mugshot and scaled down
       (`:downscale`) to 240×320, for an inter-eye distance of about 40 px,
-      as in real search images that are much worse than the enrolment
+      as in real search images that are much worse than the enrolment. It's
+      a phone snapshot in one of a range of scenes, indoors and out
+      (`snapshot_scene/1`)
 
   A shot rendered before keeps its stored size when it's rendered again.
 
@@ -43,7 +45,7 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v10"
+  @version "faces-v11"
 
   @mugshot {960, 1280}
   @icao {896, 1152}
@@ -236,16 +238,105 @@ defmodule Phantom.Biometrics.FacePrompts do
   # face model makes clean faces at any size, so the resolution comes from
   # the scaling, the ordinary snapshot from the prompt.
   def prompt("probe_low_res", attrs) do
+    %{place: place, light: light, background: background} = snapshot_scene(attrs)
+
     edit(
       attrs,
-      "Edit the reference photo into an ordinary snapshot of the same person, taken indoors with a phone camera.",
+      "Edit the reference photo into an ordinary snapshot of the same person, taken #{place} with a phone camera.",
       [
         "#{subject(attrs)} now wears #{alternate_clothing(attrs, 6)}",
-        "dim, warm light from a ceiling lamp, a little uneven across the face",
-        "the background is an ordinary room, slightly out of focus"
+        light,
+        "the background is #{background}, slightly out of focus"
       ] ++ varied("probe_low_res", attrs),
       "head and upper shoulders in frame"
     )
+  end
+
+  # Where the low-resolution snapshot is taken. Qwen gave every one the same
+  # room with a ceiling lamp when the prompt said only "indoors", so each
+  # scene names the place, its light and what's behind the person. No other
+  # people, so a face detector finds only the one face.
+  @snapshot_scenes [
+    %{
+      place: "outdoors on a city street",
+      light: "flat, overcast daylight, soft and even across the face",
+      background: "a city street with shopfronts and parked cars"
+    },
+    %{
+      place: "outdoors in a park on a sunny afternoon",
+      light: "bright sunlight from one side, with dappled shade from trees across the face",
+      background: "trees and grass in a park"
+    },
+    %{
+      place: "outdoors at night",
+      light:
+        "orange light from a streetlamp above and to one side, with deep shadow on the other side of the face",
+      background: "a dark street with the blurred lights of cars and windows"
+    },
+    %{
+      place: "outdoors by the sea",
+      light: "bright, hazy midday sunlight from above, casting shadows under the brows and nose",
+      background: "a pale sky over the sea"
+    },
+    %{
+      place: "on an apartment balcony in the early evening",
+      light: "low, golden evening sunlight on one side of the face",
+      background: "apartment buildings across the street"
+    },
+    %{
+      place: "at a bus stop",
+      light: "cold grey daylight, a little dim",
+      background: "a bus shelter and a road"
+    },
+    %{
+      place: "in a bar",
+      light: "dim, warm, colourful bar lighting with a reddish tint, uneven across the face",
+      background: "a bar counter with shelves of bottles"
+    },
+    %{
+      place: "at a restaurant table",
+      light: "warm, dim light from a pendant lamp over the table",
+      background: "a restaurant with empty tables and a wall of framed pictures"
+    },
+    %{
+      place: "in a kitchen at home",
+      light: "daylight from a window on one side, mixed with a warm ceiling light",
+      background: "kitchen cupboards and a fridge"
+    },
+    %{
+      place: "in the front seat of a car",
+      light: "daylight through the windscreen and side window",
+      background: "the car's side window and headrest, with a street outside"
+    },
+    %{
+      place: "in an office",
+      light: "flat, cool fluorescent light from above",
+      background: "desks, monitors and a whiteboard"
+    },
+    %{
+      place: "in a supermarket aisle",
+      light: "bright, harsh fluorescent light from above",
+      background: "supermarket shelves stacked with products"
+    },
+    %{
+      place: "on a train",
+      light: "daylight through the train window beside the person",
+      background: "rows of empty train seats"
+    },
+    %{
+      place: "in a living room in the evening",
+      light: "dim, warm light from a table lamp, a little uneven across the face",
+      background: "a sofa, bookshelves and a television"
+    }
+  ]
+
+  @doc """
+  The scene of the low-resolution snapshot of the person `attrs` describes,
+  indoors or out: `:place`, `:light` and `:background`. Fixed per person.
+  """
+  def snapshot_scene(attrs) do
+    {scene, _rng} = pick(@snapshot_scenes, variation_rng("snapshot_scene", attrs))
+    scene
   end
 
   # Expressions a probe can have. Qwen keeps the reference's expression unless

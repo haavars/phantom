@@ -30,7 +30,7 @@ You can drive it from IEx or from the web UI.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
-  clothing by sex, the low-resolution probe; now `faces-v10`) haven't been checked on a large set of real renders yet.
+  clothing by sex, the low-resolution probe; now `faces-v11`) haven't been checked on a large set of real renders yet.
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -280,7 +280,7 @@ The **probes** are mated search images for ABIS testing: the same person with re
 | `probe_aged` | 15 years later, aged for the age reached (see below) |
 | `probe_glasses` | Glasses, window light, different clothing |
 | `probe_appearance` | Beard grown or shaved (men), different hairstyle (women) |
-| `probe_low_res` | A phone snapshot in a dim room, scaled down to 240×320 |
+| `probe_low_res` | A phone snapshot indoors or out (street, park, bar, car, kitchen…), scaled down to 240×320 |
 
 Every probe also gets its own slight **head angle and expression** (`FacePrompts.variation/2`), since it's a
 different photo from the reference: turned 4–19° to either side, chin level, raised or lowered, sometimes
@@ -297,7 +297,11 @@ camera half the time. The prompt keeps both eyes visible so it stays a usable pr
 rendered at mugshot size, then scaled down 4× (Lanczos) to 240×320, for an inter-eye distance of about 40 px,
 in the 30–60 px range of real search images. YuNet still finds every face at that size: 107 frontal images
 scaled down 4× measured 31–55 px (median 39), and the first real `probe_low_res` 35 px. Rendering small directly would give a clean face at any size, so
-the resolution comes from the scaling and only the scene from the prompt. It isn't a default shot. See
+the resolution comes from the scaling and only the scene from the prompt. The scene is one of 14
+(`FacePrompts.snapshot_scene/1`, fixed per person), each with its own place, light and background: a city
+street, a park, a street at night, the seaside, a balcony, a bus stop, a bar, a restaurant, a kitchen, a car, an
+office, a supermarket, a train or a living room. With only "indoors" in the prompt, every one came out as the same
+room with a ceiling lamp. It isn't a default shot. See
 [`image-resolution.md`](image-resolution.md).
 
 The mugshots are one booking session, so scars look as on the anchor. The ICAO portrait and the probes are
@@ -381,7 +385,7 @@ target state.**
 The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
 colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v10`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v11`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
@@ -393,6 +397,8 @@ Every run records `FacePrompts.version/0` (currently `faces-v10`). Bump it whene
 | v6 | Probe outfits follow the person's sex and change colour. |
 | v7 | The aged probe ages for the age reached, capped with "must look N, no older". |
 | v8 | Mugshots and probes render at 960×1280 (3:4). New low-resolution probe. |
+| v9–v10 | The re-booking keeps the booking setup. New uncooperative probe. |
+| v11 | The low-resolution probe is taken in one of 14 scenes, indoors and out, not always the same room. |
 
 ## Friction ridges
 

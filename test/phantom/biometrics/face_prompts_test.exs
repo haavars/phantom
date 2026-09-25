@@ -28,6 +28,27 @@ defmodule Phantom.Biometrics.FacePromptsTest do
     assert div(150, downscale) in 30..60
   end
 
+  test "the low-resolution snapshots are taken in many scenes, indoors and out" do
+    scenes =
+      for seed <- 1..80 do
+        attrs = FaceAttributes.sample(seed)
+        scene = FacePrompts.snapshot_scene(attrs)
+        prompt = FacePrompts.prompt("probe_low_res", attrs)
+
+        assert scene == FacePrompts.snapshot_scene(attrs)
+        assert prompt =~ "taken #{scene.place} with a phone camera"
+        assert prompt =~ scene.light
+        assert prompt =~ "the background is #{scene.background}, slightly out of focus"
+        refute prompt =~ "other people"
+        scene
+      end
+
+    assert scenes |> Enum.uniq() |> length() > 8
+    assert Enum.any?(scenes, &(&1.place =~ "outdoors"))
+    refute Enum.all?(scenes, &(&1.place =~ "outdoors"))
+    assert Enum.count(scenes, &(&1.light =~ "ceiling")) < 20
+  end
+
   test "only the anchor shot is generated from text alone" do
     assert [anchor] = Enum.filter(FacePrompts.shots(), &FacePrompts.spec(&1).anchor?)
     assert anchor == FacePrompts.anchor_shot()
