@@ -223,7 +223,7 @@ defmodule Phantom.Biometrics.FaceAttributes do
 
   @clothing_female [
     {"a white blouse with a small rounded collar", "white"},
-    {"a floral summer dress with thin straps", "floral"},
+    {"a floral-print blouse with short sleeves and a round neck", "floral"},
     {"a fitted black V-neck top", "black"},
     {"a pale pink knitted cardigan over a white top", "pink"},
     {"a navy blazer over a cream silk blouse", "navy"},
@@ -233,7 +233,7 @@ defmodule Phantom.Biometrics.FaceAttributes do
     {"an emerald green satin blouse", "emerald"},
     {"a camel wool coat with the collar turned up", "camel"},
     {"a light denim shirt dress", "denim"},
-    {"a mustard off-the-shoulder knit top", "yellow"}
+    {"a teal crew-neck knit top", "teal"}
   ]
 
   @clothing_male [

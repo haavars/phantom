@@ -103,7 +103,7 @@ defmodule PhantomWeb.BiometricsLiveTest do
 
     assert has_element?(
              view,
-             ~s(#batch_traits_0_clothing option[value="a floral summer dress with thin straps"])
+             ~s(#batch_traits_0_clothing option[value="a floral-print blouse with short sleeves and a round neck"])
            )
 
     assert has_element?(view, ~s(#batch_traits_0_clothing option[value="a plain black t-shirt"]))
