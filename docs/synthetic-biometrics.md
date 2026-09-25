@@ -265,7 +265,8 @@ The default shots are the frontal, both profiles, `icao_portrait`, `probe_rebook
   [`image-resolution.md`](image-resolution.md).
 - Shots rendered before this size (896×1120, 4:5) keep their size when rendered again.
 - The inter-eye distance was about 150 px in the 896×1120 mugshots and 186 px in the ICAO portrait (median),
-  above the ISO minimum of 90 px and the 120 px best practice. At 960×1280 it should be about 160 px.
+  above the ISO minimum of 90 px and the 120 px best practice. The first 960×1280 anchor measured 152 px: the
+  3:4 frame shows more of the shoulders, so the head is about as large as before.
 - 7:9 matches a 35×45 mm passport photo.
 - A *left* profile shows the subject's left side, so they face the *left* edge of the image.
 
@@ -287,7 +288,8 @@ mugshots keep their standard poses and the ICAO portrait stays frontal and neutr
 
 `probe_low_res` is for the search images an ABIS really gets, which are often far worse than the enrolment. It's
 rendered at mugshot size, then scaled down 4× (Lanczos) to 240×320, for an inter-eye distance of about 40 px,
-in the 30–60 px range of real search images. Rendering small directly would give a clean face at any size, so
+in the 30–60 px range of real search images. YuNet still finds every face at that size: 107 frontal images
+scaled down 4× measured 31–55 px (median 39), and the first real `probe_low_res` 35 px. Rendering small directly would give a clean face at any size, so
 the resolution comes from the scaling and only the scene from the prompt. It isn't a default shot. See
 [`image-resolution.md`](image-resolution.md).
 

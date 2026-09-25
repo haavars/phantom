@@ -24,8 +24,8 @@ defmodule Phantom.Biometrics.FacePromptsTest do
 
     assert {width * downscale, height * downscale} == mugshot.size
     assert mugshot.downscale == 1
-    # The mugshots' inter-eye distance is about 160 px.
-    assert div(160, downscale) in 30..60
+    # The mugshots' inter-eye distance is about 150 px.
+    assert div(150, downscale) in 30..60
   end
 
   test "only the anchor shot is generated from text alone" do
