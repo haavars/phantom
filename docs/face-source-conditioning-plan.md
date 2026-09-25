@@ -189,6 +189,33 @@ more with references (10–18 years off, against 6 text-only), to be checked on 
 with text-only, k = 3 and 5 degraded, a "mid" degradation (greyscale, 96 px, lighter blur) and k = 5 raw as the
 leakage reference.
 
+*Full set, 2026-09-25* (16 subjects: Northern European and West African, 4 women and 4 men each; "same group" is
+the 24 pairs of the same ancestry and sex, where look-alikes matter):
+
+| References | Mean similarity, same group | Max | Similarity to closest input, median / max | Inputs above 0.40 |
+|---|---|---|---|---|
+| none (text-only `faces-v13`) | 0.266 | 0.46 | – | – |
+| degraded, k = 3 | 0.322 | 0.47 | 0.16 / 0.32 | 0 / 16 |
+| degraded, k = 5 | 0.346 | 0.55 | 0.15 / 0.27 | 0 / 16 |
+| mid, k = 3 | 0.195 | 0.43 | 0.41 / 0.70 | 9 / 16 |
+| mid, k = 5 | 0.206 | 0.36 | 0.33 / 0.67 | 6 / 16 |
+| raw, k = 5 | 0.213 | 0.33 | 0.37 / 0.61 | 7 / 16 |
+
+What that shows:
+
+- **Diversity only improves by copying.** Mid and raw references lower similarity between subjects, but because
+  the anchor takes most of one input's identity (up to 0.70, plainly the same person), not because it blends
+  them. Qwen doesn't follow "a blend of these faces, not any one of them".
+- **Degraded references are safe but make faces more alike.** Blurred greyscale faces pull the anchor towards
+  an average face, and the strong features from the text prompt are lost (same-group similarity 0.32–0.35,
+  against 0.27 text-only).
+- The reference prompts left out the `faces-v13` feature list, so they're not a pure comparison: degraded
+  references *plus* the feature list is untested.
+- Estimated age is off by 9–12 years with references, 8 text-only.
+
+So the go criterion isn't met: no setting both lowers similarity and passes the gate. Options from here are in
+§8.
+
 - 16 subjects (8 women, 8 men) from two ancestries, the same noise seeds throughout.
 - Grid: k ∈ {1, 2, 3, 5} × {raw, degraded}, plus the text-only `faces-v13` anchor as the baseline.
 - Measure for each cell:
