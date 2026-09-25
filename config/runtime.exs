@@ -51,6 +51,37 @@ if biometrics_service_dir = System.get_env("BIOMETRICS_SERVICE_DIR") do
   config :phantom, :biometrics_service_dir, biometrics_service_dir
 end
 
+# Sharing exports as links from an S3 bucket (Cloudflare R2), see
+# docs/s3-export-plan.md. In dev the settings can live in an untracked .env
+# file next to mix.exs (KEY=value lines); variables already set win.
+env_file = Path.expand("../.env", __DIR__)
+
+if config_env() == :dev and File.regular?(env_file) do
+  for line <- File.stream!(env_file),
+      line = String.trim(line),
+      line != "" and not String.starts_with?(line, "#"),
+      [key, value] <- [String.split(line, "=", parts: 2)],
+      key = key |> String.trim() |> String.replace_prefix("export ", ""),
+      System.get_env(key) == nil do
+    System.put_env(key, value |> String.trim() |> String.trim(~s(")))
+  end
+end
+
+# Tests stub the bucket (config/test.exs); a sourced .env mustn't reach it.
+if config_env() != :test do
+  config :phantom, Phantom.S3,
+    bucket: System.get_env("PHANTOM_S3_BUCKET"),
+    endpoint: System.get_env("PHANTOM_S3_ENDPOINT"),
+    region: System.get_env("PHANTOM_S3_REGION", "auto"),
+    access_key_id: System.get_env("PHANTOM_S3_ACCESS_KEY_ID"),
+    secret_access_key: System.get_env("PHANTOM_S3_SECRET_ACCESS_KEY")
+
+  # keep_days must match the bucket's lifecycle rule, which is what deletes files.
+  config :phantom, Phantom.Biometrics.Shares,
+    link_days: String.to_integer(System.get_env("PHANTOM_S3_LINK_DAYS", "7")),
+    keep_days: String.to_integer(System.get_env("PHANTOM_S3_KEEP_DAYS", "14"))
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :phantom, PhantomWeb.Endpoint,

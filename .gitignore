@@ -51,3 +51,6 @@ npm-debug.log
 /python_biometrics/**/__pycache__/
 /python_biometrics/.pytest_cache/
 /python_biometrics/tools/
+
+# Local settings and secrets, e.g. the S3 bucket's keys (config/runtime.exs)
+/.env

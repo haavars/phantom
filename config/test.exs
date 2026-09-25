@@ -57,3 +57,13 @@ config :phantom, :biometrics_output_dir, Path.expand("../tmp/test/biometrics", _
 
 # Jobs are inserted but only run when a test drains the queue or performs them.
 config :phantom, Oban, testing: :manual
+
+# A stubbed S3 bucket for shared exports (Phantom.S3, Req.Test).
+config :phantom, Phantom.S3,
+  bucket: "phantom-test",
+  endpoint: "https://s3.test",
+  region: "auto",
+  access_key_id: "test-key",
+  secret_access_key: "test-secret"
+
+config :phantom, :s3_req_options, plug: {Req.Test, Phantom.S3}, retry: false

@@ -40,7 +40,9 @@ config :phantom, :biometrics_output_dir, Path.expand("../data/synthetic/biometri
 config :phantom, Oban,
   engine: Oban.Engines.Basic,
   repo: Phantom.Repo,
-  queues: [generation: 1],
+  # generation renders on the GPU, one subject at a time; transfers uploads
+  # shared exports to the S3 bucket (Phantom.Biometrics.Shares).
+  queues: [generation: 1, transfers: 2],
   lifeline: [rescue_after: {30, :minutes}],
   pruner: [max_age: {7, :days}]
 

@@ -36,6 +36,7 @@ defmodule Phantom.Biometrics do
     Report,
     Run,
     RunRequest,
+    Shares,
     Shots,
     Storage,
     Subject,
@@ -431,6 +432,32 @@ defmodule Phantom.Biometrics do
   def nist_export(run_name, subject_name, opts \\ %{}) do
     with {:ok, subject} <- get_subject(run_name, subject_name) do
       NistExport.new(subject, opts)
+    end
+  end
+
+  ## Sharing
+
+  @doc "Whether exports can be shared as links (an S3 bucket is configured)."
+  defdelegate sharing_enabled?, to: Shares, as: :enabled?
+
+  @doc "Subscribes the caller to `{:share_updated, share}` for `subject`'s shares."
+  defdelegate subscribe_shares(subject), to: Shares, as: :subscribe
+
+  @doc "`subject`'s most recent shares, newest first."
+  defdelegate list_shares(subject), to: Shares, as: :list
+
+  @doc """
+  Uploads one subject's download to the S3 bucket to share it as a link (see
+  `Phantom.Biometrics.Shares`): `kind` `"zip"` with `include`, or `"nist"`
+  with `content`, `compression` and `search`, as for the downloads.
+  """
+  defdelegate share_subject(subject, kind, options), to: Shares, as: :create
+
+  @doc "Signs a new link for a share whose file is still in the bucket."
+  def renew_share(id) do
+    case Shares.get(id) do
+      nil -> {:error, :not_found}
+      share -> Shares.renew(share)
     end
   end
 
