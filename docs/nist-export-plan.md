@@ -27,7 +27,7 @@ Decisions made:
 | File | Records | Role |
 |---|---|---|
 | `<code>_enrol.an2` | Type-1, Type-2, Type-10 per mugshot, Type-14 per rolled finger and slap, Type-15 per palm | Enrol |
-| `<code>_search_aged.an2`, `_search_appearance`, `_search_rebooking`, `_search_glasses`, `_search_low_res`, `_search_icao` | Type-1, Type-2, one Type-10 | Search, mated with the enrolment |
+| `<code>_search_aged.an2`, `_search_appearance`, `_search_rebooking`, `_search_uncooperative`, `_search_glasses`, `_search_low_res`, `_search_icao` | Type-1, Type-2, one Type-10 | Search, mated with the enrolment |
 
 - The enrolment has capture 1 only. The tenprint card is left out, since its prints are already in the file.
 - One transaction downloads as the `.an2`; several as `<code>_nist.zip` with the files and a README.
@@ -54,7 +54,7 @@ Decisions made:
 | 10.011 CGA, 10.012 CSP | `PNG`, `SRGB` | WSQ isn't allowed in Type-10 |
 | 10.013 SAP | `20` mugshots, `0` others | Mandatory for faces (Table 12). Levels 30+ constrain composition and compression, so aren't claimed. INT-I needs 30–52 |
 | 10.020 POS | `F`, `L`, `R`, `A` | From `FacePrompts` |
-| 10.021 POA | `-45` ¾ left, `+45` ¾ right | Positive is the subject turning to their left (towards a right profile) |
+| 10.021 POA | `-45` ¾ left, `+45` ¾ right, ±20–35 for `probe_uncooperative` (its head turn) | Positive is the subject turning to their left (towards a right profile) |
 
 ### Type-2: Phantom's layout, marking the data as synthetic
 

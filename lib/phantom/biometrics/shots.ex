@@ -115,6 +115,7 @@ defmodule Phantom.Biometrics.Shots do
     "mugshot_three_quarter_right" => "¾ right",
     "icao_portrait" => "ICAO portrait",
     "probe_rebooking" => "Re-booking",
+    "probe_uncooperative" => "Uncooperative",
     "probe_aged" => "Aged +15",
     "probe_glasses" => "Glasses",
     "probe_appearance" => "Appearance",

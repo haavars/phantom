@@ -31,7 +31,18 @@ defmodule Phantom.Biometrics.NistExport do
   | 2.009 | The probe shot, for a search: `probe_aged` |
   """
 
-  alias Phantom.Biometrics.{Export, FacePrompts, Gallery, Image, NistImages, Run, Shots, Storage}
+  alias Phantom.Biometrics.{
+    Export,
+    FaceAttributes,
+    FacePrompts,
+    Gallery,
+    Image,
+    NistImages,
+    Run,
+    Shots,
+    Storage
+  }
+
   alias Phantom.Biometrics.Subject
   alias Phantom.Nist.{Type1, Type10, Type14, Type15, Type2}
 
@@ -40,11 +51,8 @@ defmodule Phantom.Biometrics.NistExport do
 
   @enrol_faces ~w(mugshot_frontal mugshot_left_profile mugshot_right_profile
                   mugshot_three_quarter_left mugshot_three_quarter_right)
-  @search_faces ~w(probe_aged probe_appearance probe_rebooking probe_glasses probe_low_res
-                   icao_portrait)
-
-  # Degrees from full face, positive as the subject turns to their left.
-  @pose_angles %{"mugshot_three_quarter_left" => -45, "mugshot_three_quarter_right" => 45}
+  @search_faces ~w(probe_aged probe_appearance probe_rebooking probe_uncooperative probe_glasses
+                   probe_low_res icao_portrait)
 
   @ppi 500
   @agency "PHANTOM"
@@ -246,7 +254,7 @@ defmodule Phantom.Biometrics.NistExport do
       type2(export, transaction).bytes
     ]
 
-    Stream.concat(header, Stream.map(records, &encode(&1, export.compression)))
+    Stream.concat(header, Stream.map(records, &encode(&1, export)))
   end
 
   @doc "Transaction bytes in memory, for tests and tools."
@@ -289,21 +297,22 @@ defmodule Phantom.Biometrics.NistExport do
     end
   end
 
-  defp encode(%{type: 10, idc: idc, image: image}, _compression) do
+  defp encode(%{type: 10, idc: idc, image: image}, export) do
     {:ok, face} = NistImages.face(read!(image), image)
     pos = FacePrompts.spec(image.shot).pos
+    attrs = FaceAttributes.from_map(export.subject.attributes)
 
     Type10.build(idc, face,
       src: @agency,
       date: capture_date(image),
       sap: if(String.starts_with?(image.shot, "mugshot_"), do: 20, else: 0),
       pos: pos,
-      poa: @pose_angles[image.shot]
+      poa: FacePrompts.pose_angle(image.shot, attrs)
     ).bytes
   end
 
-  defp encode(%{type: type, idc: idc, image: image}, compression) do
-    {:ok, data} = NistImages.print(read!(image), image, @ppi, compression)
+  defp encode(%{type: type, idc: idc, image: image}, export) do
+    {:ok, data} = NistImages.print(read!(image), image, @ppi, export.compression)
     spec = Shots.spec(image.shot)
 
     opts = [

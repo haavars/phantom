@@ -4,7 +4,7 @@ defmodule Phantom.Biometrics.NistExportTest do
   import Phantom.BiometricsFixtures
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{Gallery, NistExport, NistImages, Storage}
+  alias Phantom.Biometrics.{FaceAttributes, FacePrompts, Gallery, NistExport, NistImages, Storage}
   alias Phantom.Nist.{Record, Type1}
 
   @wsq if NistImages.wsq_available?(),
@@ -169,6 +169,23 @@ defmodule Phantom.Biometrics.NistExportTest do
              NistExport.transaction_bytes(export, aged)
 
     assert files["#{code}/README.txt"] =~ "Search with Aged +15: 1 face"
+  end
+
+  test "the uncooperative probe is angled, by the subject's own head turn" do
+    run = create_run(subjects: 1, shots: ["probe_uncooperative"])
+    {:ok, subject} = Biometrics.get_subject(run, "subject_001")
+    attrs = FaceAttributes.from_map(subject.attributes)
+    angle = FacePrompts.pose_angle("probe_uncooperative", attrs)
+    assert abs(angle) in 20..35
+
+    {:ok, export} =
+      Biometrics.nist_export(run, "subject_001", %{"search" => ["probe_uncooperative"]})
+
+    [search] = Enum.filter(export.transactions, &(&1.kind == :search))
+    assert search.filename =~ "_search_uncooperative.an2"
+    [_type1, _type2, face] = decode(export, search)
+    assert %{20 => "A"} = face.fields
+    assert face.fields[21] == Integer.to_string(angle)
   end
 
   test "searches without an enrolment when there's nothing to enrol", %{name: name} do

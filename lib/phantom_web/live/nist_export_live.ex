@@ -24,7 +24,8 @@ defmodule PhantomWeb.NistExportLive do
   @probe_hints %{
     "probe_aged" => "The same person 15 years older",
     "probe_appearance" => "A different look: hair, facial hair or weight",
-    "probe_rebooking" => "Booked again a year later, other light and clothes",
+    "probe_rebooking" => "Booked again: other clothes and expression",
+    "probe_uncooperative" => "Booked drunk and disorderly, turned away and pulling a face",
     "probe_glasses" => "A casual photo wearing glasses",
     "probe_low_res" => "A small snapshot, about 40 px between the eyes",
     "icao_portrait" => "A passport-style portrait"

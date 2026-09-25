@@ -36,7 +36,8 @@ defmodule Phantom.Biometrics.FacePromptsTest do
 
   test "scars look as on the anchor in the mugshots and have healed in every later shot" do
     later =
-      ~w(icao_portrait probe_rebooking probe_aged probe_glasses probe_appearance probe_low_res)
+      ~w(icao_portrait probe_rebooking probe_uncooperative probe_aged probe_glasses
+         probe_appearance probe_low_res)
 
     session = FacePrompts.shots() -- later
 
@@ -67,13 +68,16 @@ defmodule Phantom.Biometrics.FacePromptsTest do
   end
 
   test "probes vary head angle and expression slightly, the mugshots and ICAO portrait don't" do
-    probes = ~w(probe_rebooking probe_aged probe_glasses probe_appearance probe_low_res)
+    probes =
+      ~w(probe_rebooking probe_uncooperative probe_aged probe_glasses probe_appearance probe_low_res)
+
+    yaws = %{"probe_rebooking" => 1..3, "probe_uncooperative" => 20..35}
     attrs = FaceAttributes.sample(7)
 
     for shot <- probes do
       prompt = FacePrompts.prompt(shot, attrs)
       v = FacePrompts.variation(shot, attrs)
-      assert v.yaw in 4..19
+      assert v.yaw in Map.get(yaws, shot, 4..19)
       assert prompt =~ "the head is turned about #{v.yaw} degrees towards the #{v.towards}"
       assert prompt =~ "the expression changes to #{v.expression}"
       refute prompt =~ "neutral expression"
@@ -84,6 +88,62 @@ defmodule Phantom.Biometrics.FacePromptsTest do
     end
 
     assert FacePrompts.prompt("icao_portrait", attrs) =~ "neutral expression"
+  end
+
+  test "the re-booking keeps the booking setup and turns at most a couple of degrees" do
+    for seed <- 1..60 do
+      attrs = FaceAttributes.sample(seed)
+      v = FacePrompts.variation("probe_rebooking", attrs)
+
+      assert v.yaw in 1..3
+      assert %{pitch: :level, roll: nil, off_camera?: false} = v
+      refute v.expression =~ ~r/broad smile|mouth slightly open/
+
+      prompt = FacePrompts.prompt("probe_rebooking", attrs)
+      assert prompt =~ "still almost squarely frontal"
+      assert prompt =~ "plain uniform mid-grey background, even diffuse flash lighting"
+      refute prompt =~ ~r/fluorescent|messier|wall|closer/
+    end
+
+    expressions =
+      for seed <- 1..60,
+          do: FacePrompts.variation("probe_rebooking", FaceAttributes.sample(seed)).expression
+
+    assert expressions |> Enum.uniq() |> length() > 4
+  end
+
+  test "the uncooperative booking is turned well away, pulling a face, and angled" do
+    assert FacePrompts.spec("probe_uncooperative").pos == "A"
+    refute "probe_uncooperative" in FacePrompts.default_shots()
+
+    variations =
+      for seed <- 1..60 do
+        attrs = FaceAttributes.sample(seed)
+        v = FacePrompts.variation("probe_uncooperative", attrs)
+        angle = FacePrompts.pose_angle("probe_uncooperative", attrs)
+
+        assert v.yaw in 20..35
+        assert v.pitch in [:up, :down]
+        assert angle == if(v.towards == "left", do: -v.yaw, else: v.yaw)
+
+        prompt = FacePrompts.prompt("probe_uncooperative", attrs)
+        assert prompt =~ "drunk and disorderly"
+        assert prompt =~ "both eyes still visible"
+        # A flushed face came out looking like makeup.
+        refute prompt =~ ~r/flushed|red across/
+        assert prompt =~ "nearer the #{v.towards} edge"
+        v
+      end
+
+    assert variations |> Enum.map(& &1.expression) |> Enum.uniq() |> length() > 4
+    assert Enum.any?(variations, & &1.off_camera?)
+    refute Enum.all?(variations, & &1.off_camera?)
+
+    # The ¾ views keep their fixed angle; frontal shots have none.
+    attrs = FaceAttributes.sample(1)
+    assert FacePrompts.pose_angle("mugshot_three_quarter_left", attrs) == -45
+    assert FacePrompts.pose_angle("mugshot_three_quarter_right", attrs) == 45
+    assert FacePrompts.pose_angle("probe_rebooking", attrs) == nil
   end
 
   test "a probe's variation is fixed per person and shot and differs between them" do
@@ -108,6 +168,7 @@ defmodule Phantom.Biometrics.FacePromptsTest do
     changes = %{
       "icao_portrait" => "the clothing is now ",
       "probe_rebooking" => "now wears ",
+      "probe_uncooperative" => "now wears ",
       "probe_aged" => "now wears ",
       "probe_glasses" => "now wears ",
       "probe_appearance" => "now wears ",

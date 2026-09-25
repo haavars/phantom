@@ -26,10 +26,16 @@ defmodule Phantom.Biometrics.FacePrompts do
   show scars as the anchor does. Every other shot is taken at another time,
   and any scar in it has healed.
 
-  The probes (re-booking, aged, glasses, appearance, low resolution) are other photos than the
-  reference, so each gets its own slight head angle and expression
-  (`variation/2`), for testing face matching across pose and expression. The
-  ICAO portrait stays compliant: frontal, neutral.
+  The probes (re-booking, uncooperative, aged, glasses, appearance, low
+  resolution) are other photos than the reference, so each gets its own
+  slight head angle and expression (`variation/2`), for testing face matching
+  across pose and expression. The re-booking is still a booking photo, so it
+  keeps the anchor's setup and varies least: other clothes, a slightly
+  different expression and at most a couple of degrees to the side. The
+  uncooperative booking is the opposite: someone drunk and disorderly who
+  won't hold still, turned 20-35 degrees away (so it's an angled pose, `A`),
+  dishevelled and bleary-eyed, pulling a face. The ICAO portrait stays compliant:
+  frontal, neutral.
 
   Bump `@version` whenever a template changes, so harness runs record which
   prompts produced them.
@@ -37,7 +43,7 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v8"
+  @version "faces-v10"
 
   @mugshot {960, 1280}
   @icao {896, 1152}
@@ -52,6 +58,7 @@ defmodule Phantom.Biometrics.FacePrompts do
     %{id: "mugshot_three_quarter_right", pos: "A", size: @mugshot, anchor?: false},
     %{id: "icao_portrait", pos: "F", size: @icao, anchor?: false},
     %{id: "probe_rebooking", pos: "F", size: @mugshot, anchor?: false},
+    %{id: "probe_uncooperative", pos: "A", size: @mugshot, anchor?: false},
     %{id: "probe_aged", pos: "F", size: @mugshot, anchor?: false},
     %{id: "probe_glasses", pos: "F", size: @mugshot, anchor?: false},
     %{id: "probe_appearance", pos: "F", size: @mugshot, anchor?: false},
@@ -136,18 +143,36 @@ defmodule Phantom.Biometrics.FacePrompts do
     )
   end
 
+  # Booked again with the same setup: only the clothes, the expression and a
+  # couple of degrees of head angle change.
   def prompt("probe_rebooking", attrs) do
     edit(
       attrs,
-      "Edit the reference photo into a different police booking photograph of the same person, taken a year later at another police station.",
+      "Edit the reference photo into another police booking photograph of the same person, taken at a later booking with the same camera, lighting and background.",
+      ["#{subject(attrs)} now wears #{alternate_clothing(attrs, 2)}"] ++
+        varied("probe_rebooking", attrs),
+      "head and upper shoulders centred in the frame, the same framing and camera distance as the reference, plain uniform mid-grey background, even diffuse flash lighting from the front, taken at eye level"
+    )
+  end
+
+  # Drunk and disorderly: the same booking room, but the person won't face the
+  # camera or hold still. Both eyes stay visible, so it's still a usable probe.
+  # Qwen painted "flushed red cheeks" on like blusher, so the drink shows in
+  # the eyes and the skin's texture instead of its colour.
+  def prompt("probe_uncooperative", attrs) do
+    v = variation("probe_uncooperative", attrs)
+
+    edit(
+      attrs,
+      "Edit the reference photo into a police booking photograph of the same person taken on another night, when #{subject(attrs)} was brought in drunk and disorderly and would not cooperate with the photographer.",
       [
-        "#{subject(attrs)} now wears #{alternate_clothing(attrs, 2)}",
-        "harsh overhead fluorescent light casts shadows under the eyebrows, nose and chin, with a slight greenish-yellow colour cast",
-        "the camera is a little higher and closer",
-        "the hair is a little messier",
-        "the background is a scuffed off-white painted wall"
-      ] ++ varied("probe_rebooking", attrs),
-      "head and upper shoulders in frame"
+        "#{subject(attrs)} now wears #{alternate_clothing(attrs, 7)}",
+        "the clothes are rumpled and pulled askew, with the collar twisted to one side",
+        "the hair is dishevelled and unkempt, sticking out in places",
+        "the eyes are slightly bloodshot, heavy-lidded and a little puffy underneath, and the skin has a faint oily shine from a long night",
+        "the shoulders are slumped and uneven, and the head is off-centre, nearer the #{v.towards} edge of the frame"
+      ] ++ varied("probe_uncooperative", attrs),
+      "head and shoulders in frame with both eyes still visible, plain uniform mid-grey background, the same frontal flash, now falling unevenly on the turned face"
     )
   end
 
@@ -237,6 +262,23 @@ defmodule Phantom.Biometrics.FacePrompts do
     "the lips pressed together in a tense, flat line"
   ]
 
+  # The ones a booking photo can have: small changes, mouth closed or nearly.
+  @slight_expressions @expressions --
+                        [
+                          "a broad smile showing the upper teeth",
+                          "the mouth slightly open, as if caught mid-sentence"
+                        ]
+
+  # What someone drunk and disorderly pulls instead of a booking face.
+  @uncooperative_expressions [
+    "an angry glare, with the brows pulled down hard and the jaw clenched",
+    "a contemptuous sneer, with one side of the upper lip raised",
+    "a lopsided, mocking grin",
+    "the eyes half-closed and unfocused and the mouth hanging slightly open, as if very drunk",
+    "the mouth wide open, shouting at someone beside the camera",
+    "the face screwed up in annoyance, with the eyes squeezed half-shut"
+  ]
+
   @doc """
   The head angle and expression of probe `shot` of the person `attrs`
   describes: the same for the same person and shot, different between shots
@@ -247,9 +289,49 @@ defmodule Phantom.Biometrics.FacePrompts do
     * `:roll` - `nil`, or the shoulder (`"left"` / `"right"`) the head leans towards
     * `:expression` - one of the expressions above
     * `:off_camera?` - whether the eyes look slightly past the camera
+
+  The re-booking is a booking photo like the anchor, so it's turned only 1-3
+  degrees, with the chin level, no lean, a slight expression and the eyes on
+  the camera. The uncooperative booking turns 20-35 degrees away, with the
+  chin raised or dropped and one of the expressions above.
   """
+  def variation("probe_rebooking" = shot, attrs) do
+    rng = variation_rng(shot, attrs)
+    {yaw, rng} = :rand.uniform_s(3, rng)
+    {towards, rng} = pick(["left", "right"], rng)
+    {expression, _rng} = pick(@slight_expressions, rng)
+
+    %{
+      yaw: yaw,
+      towards: towards,
+      pitch: :level,
+      roll: nil,
+      expression: expression,
+      off_camera?: false
+    }
+  end
+
+  def variation("probe_uncooperative" = shot, attrs) do
+    rng = variation_rng(shot, attrs)
+    {yaw, rng} = :rand.uniform_s(16, rng)
+    {towards, rng} = pick(["left", "right"], rng)
+    {pitch, rng} = pick([:up, :down], rng)
+    {roll, rng} = pick([nil, "left", "right"], rng)
+    {expression, rng} = pick(@uncooperative_expressions, rng)
+    {gaze, _rng} = :rand.uniform_s(rng)
+
+    %{
+      yaw: yaw + 19,
+      towards: towards,
+      pitch: pitch,
+      roll: roll,
+      expression: expression,
+      off_camera?: gaze < 0.5
+    }
+  end
+
   def variation(shot, attrs) do
-    rng = :rand.seed_s(:exsss, {attrs.seed, :erlang.phash2(shot), 0x9E5})
+    rng = variation_rng(shot, attrs)
     {yaw, rng} = :rand.uniform_s(16, rng)
     {towards, rng} = pick(["left", "right"], rng)
     {pitch, rng} = pick([:level, :up, :down], rng)
@@ -267,6 +349,25 @@ defmodule Phantom.Biometrics.FacePrompts do
     }
   end
 
+  @doc """
+  The ANSI/NIST-ITL Type-10 pose offset angle (10.021 POA) of an angled
+  (`A`) shot of the person `attrs` describes: degrees from full face,
+  positive as the subject turns to their left. `nil` for the other poses.
+  """
+  def pose_angle("mugshot_three_quarter_left", _attrs), do: -45
+  def pose_angle("mugshot_three_quarter_right", _attrs), do: 45
+
+  # Facing the left of the image is turning to their right.
+  def pose_angle("probe_uncooperative" = shot, attrs) do
+    %{yaw: yaw, towards: towards} = variation(shot, attrs)
+    if towards == "left", do: -yaw, else: yaw
+  end
+
+  def pose_angle(_shot, _attrs), do: nil
+
+  defp variation_rng(shot, attrs),
+    do: :rand.seed_s(:exsss, {attrs.seed, :erlang.phash2(shot), 0x9E5})
+
   defp varied(shot, attrs) do
     v = variation(shot, attrs)
 
@@ -279,11 +380,14 @@ defmodule Phantom.Biometrics.FacePrompts do
 
     roll = if v.roll, do: ", leaning slightly towards the #{v.roll} shoulder", else: ""
 
+    # Qwen overdoes a turn it's told about, so a tiny one says how tiny.
+    frontal = if v.yaw <= 3, do: " so the face is still almost squarely frontal", else: ""
+
     gaze =
       if v.off_camera?, do: "looking slightly past the camera", else: "looking into the camera"
 
     [
-      "unlike the reference, the head is turned about #{v.yaw} degrees towards the #{v.towards} of the image, #{pitch}#{roll}",
+      "unlike the reference, the head is turned about #{v.yaw} degrees towards the #{v.towards} of the image#{frontal}, #{pitch}#{roll}",
       "the expression changes to #{v.expression}, #{gaze}"
     ]
   end

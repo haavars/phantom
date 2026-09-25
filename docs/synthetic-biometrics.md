@@ -30,7 +30,7 @@ You can drive it from IEx or from the web UI.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
-  clothing by sex, the low-resolution probe; now `faces-v8`) haven't been checked on a large set of real renders yet.
+  clothing by sex, the low-resolution probe; now `faces-v10`) haven't been checked on a large set of real renders yet.
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -253,6 +253,7 @@ Friction-ridge shots are described under [Friction ridges](#friction-ridges).
 | `mugshot_three_quarter_left` / `_right` | A | 960×1280 | anchor |
 | `icao_portrait` | F | 896×1152 (7:9, 35×45 mm) | anchor |
 | `probe_rebooking` | F | 960×1280 | anchor |
+| `probe_uncooperative` | A (POA ±20–35) | 960×1280 | anchor |
 | `probe_aged` | F | 960×1280 | anchor |
 | `probe_glasses` | F | 960×1280 | anchor |
 | `probe_appearance` | F | 960×1280 | anchor |
@@ -274,7 +275,8 @@ The **probes** are mated search images for ABIS testing: the same person with re
 
 | Probe | Variation |
 |---|---|
-| `probe_rebooking` | A year later at another station: harsh overhead light, closer camera, messier hair, different wall and clothing |
+| `probe_rebooking` | Booked again with the same camera, light and background: other clothes, a slightly different expression |
+| `probe_uncooperative` | Booked drunk and disorderly: turned 20–35° away, chin up or down, bleary bloodshot eyes, dishevelled, rumpled clothes, glaring, sneering, shouting or half-asleep |
 | `probe_aged` | 15 years later, aged for the age reached (see below) |
 | `probe_glasses` | Glasses, window light, different clothing |
 | `probe_appearance` | Beard grown or shaved (men), different hairstyle (women) |
@@ -284,7 +286,12 @@ Every probe also gets its own slight **head angle and expression** (`FacePrompts
 different photo from the reference: turned 4–19° to either side, chin level, raised or lowered, sometimes
 leaning towards a shoulder, one of nine expressions (slight or broad smile, frown, raised eyebrows, squint,
 mid-sentence…) and now and then a gaze past the camera. It's fixed per person and shot, so it reproduces. The
-mugshots keep their standard poses and the ICAO portrait stays frontal and neutral.
+mugshots keep their standard poses and the ICAO portrait stays frontal and neutral. `probe_rebooking` is still a
+booking photo, so it varies least: turned only 1–3°, chin level, no lean, eyes on the camera, and one of the
+seven slight expressions (no broad smile, no open mouth). `probe_uncooperative` is the opposite, for bookings of
+people who won't cooperate: turned 20–35° away, so it's exported as an angled pose (`A`) with that angle as
+POA, chin raised or dropped, often leaning, and one of six expressions of its own, with the eyes past the
+camera half the time. The prompt keeps both eyes visible so it stays a usable probe. It isn't a default shot.
 
 `probe_low_res` is for the search images an ABIS really gets, which are often far worse than the enrolment. It's
 rendered at mugshot size, then scaled down 4× (Lanczos) to 240×320, for an inter-eye distance of about 40 px,
@@ -374,7 +381,7 @@ target state.**
 The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
 colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v8`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v10`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
