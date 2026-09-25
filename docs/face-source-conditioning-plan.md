@@ -144,8 +144,8 @@ Phase 1 decides.
 Every anchor made from pool faces is checked before it's stored:
 
 1. ArcFace embedding of the anchor.
-2. **Against its inputs:** similarity to every image of each input identity must be below **τ_leak**.
-3. **Against the whole pool:** the nearest neighbour must also be below τ_leak, so the anchor hasn't drifted onto
+2. **Against its inputs:** similarity to every image of each input identity must be below **τ_input**.
+3. **Against the whole pool:** the nearest neighbour must be below **τ_pool**, so the anchor hasn't drifted onto
    another real person.
 4. **Against the run:** similarity to every earlier subject of the run must be below **τ_run** (0.35 to start).
    This is the diversity guarantee.
@@ -153,9 +153,18 @@ Every anchor made from pool faces is checked before it's stored:
    5 attempts, then fall back to the text-only anchor. Attempts and scores are recorded on the image and in the
    run report.
 
-**τ_leak** comes from the pool itself: the 99.9th percentile of similarity between *different* pool identities in
-the same group, measured per group, since matchers score some groups differently. Expected around 0.25–0.3. In
-other words, an anchor may look no more like any real pool face than two random strangers do.
+Both thresholds come from the pool itself, per group, since matchers score some groups differently. They
+differ because the pool check compares against every face at once, and the best of 73,000 comparisons is
+naturally much higher than one comparison:
+
+- **τ_input**: the 99.9th percentile of similarity between two *different* pool faces. On FairFace: 0.25 White,
+  0.28 Black. The anchor looks no more like any of its inputs than two random strangers do.
+- **τ_pool**: how close a *real* face's nearest stranger in the pool is, median (same-person duplicates above
+  0.45 left out). On FairFace: 0.30 White, 0.33 Black. The anchor is no closer to any real person than a typical
+  real person is to their nearest stranger.
+
+The first version used τ_input for both. Then even text-only anchors, which never saw a pool face, "failed"
+against the pool (nearest neighbour 0.29), which is how the difference showed up.
 
 The other face shots (profiles, probes) are conditioned only on the anchor, as today, so they need no gate of
 their own. The anchor is the only image that sees pool faces.
@@ -163,7 +172,22 @@ their own. The anchor is the only image that sees pool faces.
 ## 7. Phases
 
 **Phase 1: Offline experiment.** No app changes; scripts in a scratch directory, as with the prompt experiments.
-FairFace plus CFD are enough to start, since both have labels.
+FairFace is enough to start, since it has labels.
+
+*Pilot, 2026-09-25* (4 subjects, one per sex and ancestry, 9 settings, pool faces sent at
+`reference_resolution` 512):
+
+| References | Similarity to own inputs | Nearest pool face | Gate |
+|---|---|---|---|
+| none (text-only `faces-v13`) | – | 0.29 | passes |
+| raw, k = 1–5 | 0.39–0.46 | 0.41–0.48 | **fails**: the anchor partly copies the inputs |
+| degraded (greyscale, 48 px, blurred), k = 1–5 | 0.14–0.19 | 0.27–0.28 | passes |
+
+Raw faces leak identity, and more of them dilutes it only a little (k = 5: 0.39). Degraded ones pass, but change
+the face only subtly. The prompt keeps the booking setup, hair and clothing in every setting. Estimated age drifts
+more with references (10–18 years off, against 6 text-only), to be checked on the full set. Next: all 16 subjects
+with text-only, k = 3 and 5 degraded, a "mid" degradation (greyscale, 96 px, lighter blur) and k = 5 raw as the
+leakage reference.
 
 - 16 subjects (8 women, 8 men) from two ancestries, the same noise seeds throughout.
 - Grid: k ∈ {1, 2, 3, 5} × {raw, degraded}, plus the text-only `faces-v13` anchor as the baseline.
