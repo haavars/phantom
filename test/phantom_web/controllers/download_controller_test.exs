@@ -54,4 +54,57 @@ defmodule PhantomWeb.DownloadControllerTest do
     assert conn |> get(~p"/biometrics/#{run}/subject_999/download") |> response(404)
     assert conn |> get(~p"/biometrics/missing/subject_001/download") |> response(404)
   end
+
+  describe "NIST" do
+    setup do
+      run = create_run(subjects: 1, shots: ["mugshot_left_profile", "probe_aged", "rolled_02"])
+      {:ok, subject} = Phantom.Biometrics.get_subject(run, "subject_001")
+      %{run: run, code: Gallery.code(subject.seed)}
+    end
+
+    test "streams the enrolment as one .an2 file", %{conn: conn, run: run, code: code} do
+      conn = get(conn, ~p"/biometrics/#{run}/subject_001/nist/download")
+
+      assert conn.status == 200
+      assert conn.state == :chunked
+      assert get_resp_header(conn, "content-type") == ["application/octet-stream"]
+
+      assert get_resp_header(conn, "content-disposition") ==
+               [~s(attachment; filename="#{code}_enrol.an2")]
+
+      assert {:ok, [%{type: 1}, %{type: 2}, %{type: 10}, %{type: 10}, %{type: 14}]} =
+               Phantom.Nist.File.decode(conn.resp_body)
+    end
+
+    test "takes content and search probes, and zips several files", %{
+      conn: conn,
+      run: run,
+      code: code
+    } do
+      query = [content: "faces", compression: "png", search: ["probe_aged"]]
+      conn = get(conn, ~p"/biometrics/#{run}/subject_001/nist/download?#{query}")
+
+      assert get_resp_header(conn, "content-type") == ["application/zip"]
+
+      assert get_resp_header(conn, "content-disposition") == [
+               ~s(attachment; filename="#{code}_nist.zip")
+             ]
+
+      assert unzip(conn.resp_body) == [
+               "#{code}/#{code}_enrol.an2",
+               "#{code}/#{code}_search_aged.an2",
+               "#{code}/README.txt"
+             ]
+    end
+
+    test "404s when there's nothing to export or no such subject", %{conn: conn} do
+      run = create_run(subjects: 1, shots: ["rolled_02"])
+
+      assert conn
+             |> get(~p"/biometrics/#{run}/subject_001/nist/download?#{[content: "faces"]}")
+             |> response(404) =~ "Nothing to export"
+
+      assert conn |> get(~p"/biometrics/#{run}/subject_999/nist/download") |> response(404)
+    end
+  end
 end

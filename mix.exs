@@ -70,6 +70,8 @@ defmodule Phantom.MixProject do
       {:req, "~> 0.5"},
       # Streams a subject's images to the browser as a ZIP (Biometrics.Export).
       {:zstream, "~> 0.6.7"},
+      # Decodes images for NIST export: faces without alpha, raw pixels for WSQ (Biometrics.NistImages).
+      {:vix, "~> 0.41"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

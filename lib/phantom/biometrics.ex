@@ -31,6 +31,7 @@ defmodule Phantom.Biometrics do
     FacePrompts,
     Gallery,
     Image,
+    NistExport,
     Report,
     Run,
     RunRequest,
@@ -378,13 +379,13 @@ defmodule Phantom.Biometrics do
 
   ## Subjects, images and identities
 
-  @doc "One subject of a run, with its images."
+  @doc "One subject of a run, with its images and run."
   def get_subject(run_name, subject_name) do
     query =
       from s in Subject,
         join: r in assoc(s, :run),
         where: r.name == ^run_name and s.name == ^subject_name,
-        preload: [:images]
+        preload: [:images, run: r]
 
     case Repo.one(query) do
       nil -> {:error, :not_found}
@@ -408,7 +409,7 @@ defmodule Phantom.Biometrics do
   """
   def export_subject(run_name, subject_name, include \\ "all") do
     with {:ok, subject} <- get_subject(run_name, subject_name) do
-      {:ok, subject |> Repo.preload(:run) |> Export.new(include)}
+      {:ok, Export.new(subject, include)}
     end
   end
 
@@ -416,6 +417,18 @@ defmodule Phantom.Biometrics do
 
   @doc "What each download of `subject` (with its images) holds: files and bytes per include."
   defdelegate download_summary(subject), to: Export, as: :summary
+
+  @doc """
+  Plans the export of one subject as ANSI/NIST-ITL transactions (see
+  `Phantom.Biometrics.NistExport`), with `opts` `content`, `compression` and
+  `search`. Returns `{:ok, export}`, `{:error, :not_found}`, or
+  `NistExport.new/2`'s errors; `NistExport.stream/1` then produces the download.
+  """
+  def nist_export(run_name, subject_name, opts \\ %{}) do
+    with {:ok, subject} <- get_subject(run_name, subject_name) do
+      NistExport.new(subject, opts)
+    end
+  end
 
   @doc "The file name to save one image under: `PH-5167-ED5B_fgp02_R_index.png`."
   def download_name(%Image{} = image) do

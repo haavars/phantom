@@ -23,6 +23,8 @@ defmodule PhantomWeb.Router do
     live "/biometrics/:run", BiometricsRunLive, :show
     live "/biometrics/:run/:subject", BiometricsRunLive, :subject
     get "/biometrics/:run/:subject/download", DownloadController, :subject
+    live "/biometrics/:run/:subject/nist", NistExportLive, :show
+    get "/biometrics/:run/:subject/nist/download", DownloadController, :nist
 
     get "/images/:id", ImageController, :show
     get "/images/:id/ground-truth", ImageController, :ground_truth

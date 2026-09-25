@@ -361,6 +361,19 @@ defmodule PhantomWeb.BiometricsRunLive do
             </span>
           </a>
         <% end %>
+        <.link
+          navigate={~p"/biometrics/#{@run.name}/#{@subject.name}/nist"}
+          id="download-nist"
+          class="flex items-start justify-between gap-3 rounded-lg px-3 py-2 transition hover:bg-base-200"
+        >
+          <span class="min-w-0">
+            <span class="block text-sm font-medium">NIST (.an2)…</span>
+            <span class="block text-xs text-base-content/60">
+              ANSI/NIST-ITL enrolment and search files, PNG or WSQ
+            </span>
+          </span>
+          <.icon name="hero-chevron-right-mini" class="mt-0.5 size-4 shrink-0 text-base-content/40" />
+        </.link>
         <p
           :if={@partial?}
           class="mx-1 mt-1 flex gap-1.5 border-t border-base-300 px-2 pt-2 text-xs text-warning"
@@ -369,7 +382,8 @@ defmodule PhantomWeb.BiometricsRunLive do
           Still rendering: the download has the images so far.
         </p>
         <p class="mx-1 mt-1 border-t border-base-300 px-2 pt-2 pb-1 text-[11px] text-base-content/50">
-          ZIP with PNG images, a subject.json manifest (seeds, prompts, SHA-256) and a README.
+          The ZIPs hold PNG images, a subject.json manifest (seeds, prompts, SHA-256) and a
+          README.
         </p>
       </div>
     </div>

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-time setup for the synthetic friction-ridge service: creates an isolated
 # venv, installs requirements.txt, and installs the verification tools into
-# tools/ (NIST NBIS: mindtct, bozorth3, cjpegl; NIST NFIQ 2). CPU only. Safe to
+# tools/ (NIST NBIS: mindtct, bozorth3, cjpegl, and cwsq/dwsq/an2ktool for NIST export;
+# NIST NFIQ 2). CPU only. Safe to
 # re-run: finished steps are skipped.
 #
 # Without the tools the service still renders, but it can't verify images
@@ -20,6 +21,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 PYTHON=${PYTHON:-python3}
 NBIS_URL=${NBIS_URL:-https://nigos.nist.gov/nist/nbis/nbis_v5_0_0.zip}
 NFIQ2_VERSION=${NFIQ2_VERSION:-2.3.0}
+# mindtct, bozorth3 and cjpegl verify prints; cwsq, dwsq and an2ktool are for NIST export (WSQ).
+NBIS_TOOLS=(mindtct bozorth3 cjpegl cwsq dwsq an2ktool)
 TORCH_INDEX_URL=${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}
 IMPOSE_COMMIT=c46f36baa32b61eb2e4fadd3b3797d2a57365054
 TAMING_COMMIT=3ba01b241669f5ade541ce990f7650a3b8f65318
@@ -53,11 +56,15 @@ echo "==> Verifying the install"
 .venv/bin/python -c "import numpy, scipy, cv2, skimage, fastapi; print('ok: numpy', numpy.__version__, '| opencv', cv2.__version__)"
 
 install_nbis() {
-  if [ -x tools/nbis/bin/mindtct ] && [ -x tools/nbis/bin/bozorth3 ] && [ -x tools/nbis/bin/cjpegl ]; then
+  local tool missing=0
+  for tool in "${NBIS_TOOLS[@]}"; do
+    [ -x "tools/nbis/bin/$tool" ] || missing=1
+  done
+  if [ "$missing" = 0 ]; then
     echo "==> NBIS already in tools/nbis"
     return
   fi
-  echo "==> Building NIST NBIS 5.0 (mindtct, bozorth3, cjpegl) - a few minutes"
+  echo "==> Building NIST NBIS 5.0 (${NBIS_TOOLS[*]}) - a few minutes"
   local build
   build="$(pwd)/tools/build"
   rm -rf "$build" && mkdir -p "$build"
@@ -78,7 +85,9 @@ install_nbis() {
     step install make install LIBNBIS=no
   )
   mkdir -p tools/nbis/bin
-  cp "$build/install/bin/"{mindtct,bozorth3,cjpegl} tools/nbis/bin/
+  for tool in "${NBIS_TOOLS[@]}"; do
+    cp "$build/install/bin/$tool" tools/nbis/bin/
+  done
   rm -rf "$build"
 }
 
