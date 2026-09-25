@@ -28,8 +28,14 @@ cd python_biometrics
 
 `setup.sh` alone installs `requirements.txt` and the verification tools into `tools/` (gitignored):
 
-- **NIST NBIS 5.0** (`mindtct`, `bozorth3`, `cjpegl`), built from source. It needs `gcc`, `make` and `curl`,
-  and takes a few minutes. The script works around NBIS's old CMake files and GCC 10+.
+- **NIST NBIS 5.0**, built from source. It needs `gcc`, `make` and `curl`, and takes a few minutes. The script
+  works around NBIS's old CMake files and GCC 10+. It keeps:
+  - `mindtct`, `bozorth3` and `cjpegl`, for verification
+  - `cwsq`, `dwsq` and `an2ktool`, for the Phoenix app's NIST export (WSQ compression, and checking `.an2`
+    files)
+
+  An older install without the export tools is rebuilt when `setup.sh` runs again. Set `NBIS_BIN` to use NBIS
+  tools from another directory.
 - **NIST NFIQ 2.3**, unpacked from NIST's Ubuntu package (20, 22 or 24). On other systems, build it yourself
   and set `NFIQ2_BIN` and `NFIQ2_MODEL`.
 
@@ -173,4 +179,6 @@ One subject with all 18 shots and 2 captures took about 1.5 minutes.
   largely cancel, but it says nothing about whether the pattern itself is realistic.
 - **Minutiae:** the ground truth is extracted per impression. Correspondences between two captures aren't
   given. Its angles point the opposite way from ANSI/INCITS 378 (about 180° from `mindtct`'s).
-- **Formats:** the output is PNG only. WSQ and ANSI/NIST-ITL packaging are not done yet.
+- **Formats:** the service returns PNG at 500 ppi. The Phoenix app packages prints as ANSI/NIST-ITL, PNG or WSQ
+  (with `cwsq` from `setup.sh`); see `docs/nist-export-plan.md`. Why 500 ppi rather than 1000:
+  `docs/image-resolution.md`.

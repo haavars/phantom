@@ -16,13 +16,17 @@ Phantom generates **synthetic subjects**, fictional people, for ABIS testing. Ea
 
 All images of one subject show the same person, the same fingers and the same palms. A run can fix any
 appearance trait for all of its people (ten Northern European women in their thirties, say), and every person
-can be downloaded as a ZIP with a manifest. This implements the face and friction-ridge parts of
-[`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md). You can drive it from IEx or from the web UI.
+can be downloaded as a ZIP with a manifest, or as ANSI/NIST-ITL transactions to enrol in an ABIS. This
+implements the face and friction-ridge parts of [`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md).
+You can drive it from IEx or from the web UI.
 
-**Status (2026-09-24):**
+**Status (2026-09-25):**
 
 - Faces and friction ridges both work, from IEx and the web UI. Runs, subjects and images are stored in
   Postgres, the files on local disk.
+- A person exports as ANSI/NIST-ITL 1-2011 Update:2015 transactions (`.an2`): an enrolment and, optionally, face
+  probes to search with, prints as PNG or WSQ. See [NIST export](#nist-export) and
+  [`nist-export-plan.md`](nist-export-plan.md).
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
@@ -40,8 +44,8 @@ Run `mix phx.server`, which starts both services:
 - the friction-ridge service on port 8001 (patterns and verification on the CPU, diffusion rendering on the GPU)
 
 The friction-ridge service needs its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`.
-This builds the NIST verification tools and installs the diffusion renderer; leave out `--diffusion` on a
-machine without an NVIDIA GPU and use the `procedural` renderer.
+This builds the NIST tools (verification, and WSQ for the NIST export) and installs the diffusion renderer; leave
+out `--diffusion` on a machine without an NVIDIA GPU and use the `procedural` renderer.
 
 Start runs from the web UI (below), or from IEx attached to the running app (`iex -S mix phx.server`):
 
@@ -120,7 +124,10 @@ With `mix phx.server` running, open [`localhost:4000`](http://localhost:4000). T
     from the stored seeds and prompts (see [Determinism](#determinism-resuming-and-adding-shots)).
   - **Add shots** adds face shots or friction-ridge groups the run doesn't have yet to every subject.
 - **`/biometrics/<run>/<subject>`**, one identity: the person's code, sex, age and description, every image,
-  and a **Download** menu (see [Downloads](#downloads)).
+  and a **Download** menu (see [Downloads](#downloads)) whose last entry, **NIST (.an2)…**, opens the NIST
+  export.
+- **`/biometrics/<run>/<subject>/nist`**, the [NIST export](#nist-export): what the enrolment holds, which face
+  probes to add as searches, and PNG or WSQ, with the files and records the download will have.
 
 Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
 
@@ -136,7 +143,9 @@ Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
   alongside a running server. Use `mix run --no-start` for scripts that only need the database.
 
 Runs are stored in Postgres (see [Storage](#storage)). Images are served by id from `/images/:id`
-(`?download=1` to save one), and a friction-ridge image's ground truth from `/images/:id/ground-truth`.
+(`?download=1` to save one), and a friction-ridge image's ground truth from `/images/:id/ground-truth`. Image
+ids are UUIDv7s, never reused, so a browser that keeps images by URL can't show an old picture after the
+database is reset.
 
 ## Downloads
 
@@ -174,6 +183,30 @@ while any are missing or the subject is still rendering; the README then says th
 [`zstream`](https://hex.pm/packages/zstream): PNGs are stored uncompressed (they're compressed already) and read
 from storage as the ZIP is sent, so a subject of 40–100 MB starts downloading at once and never sits in
 memory.
+
+### NIST export
+
+The NIST export page (`/biometrics/<run>/<subject>/nist`) packages a person as ANSI/NIST-ITL 1-2011
+Update:2015 transactions in Traditional encoding, for loading into an ABIS:
+
+- **Enrolment** (`PH-5167-ED5B_enrol.an2`): prints and face, prints only, or face only. Faces are the mugshot set
+  (Type-10); prints are the first capture of every rolled finger and slap (Type-14) and palm (Type-15). The card
+  is left out.
+- **Search** (`PH-5167-ED5B_search_aged.an2`, …): each face probe you pick (aged, changed appearance,
+  re-booking, glasses, ICAO portrait) as its own transaction, mated with the enrolment.
+- **Compression:** PNG (the stored images byte for byte) or WSQ (NIST `cwsq`, about 15:1) for prints and palms.
+  Faces are PNG either way, flattened to RGB, since Type-10 allows neither WSQ nor alpha.
+
+Enrolment alone downloads as the `.an2`, and with searches as a ZIP with a README. Every file marks itself as
+synthetic: Type-1 domain `PHANTOM`, and a Type-2 record with the person's code (2.003) and "SYNTHETIC TEST DATA -
+NOT A REAL PERSON - GENERATED BY PHANTOM" (2.004). The same is available directly:
+
+```
+GET /biometrics/<run>/<subject>/nist/download?content=prints_faces|prints|faces&compression=png|wsq&search[]=probe_aged
+```
+
+The record layout, field values and what's next (INTERPOL's XML format, run-level export, Type-9 minutiae) are in
+[`nist-export-plan.md`](nist-export-plan.md).
 
 ## How it works
 
@@ -226,7 +259,10 @@ Friction-ridge shots are described under [Friction ridges](#friction-ridges).
 
 The default shots are the frontal, both profiles, `icao_portrait`, `probe_rebooking` and `probe_aged`.
 
-- 4:5 is the ANSI/NIST-ITL Type-10 best-practice aspect ratio.
+- 4:5 is the aspect of the ANSI/NIST-ITL level-30 mugshot (at least 480×600). Level 40 and up need 3:4; see
+  [`image-resolution.md`](image-resolution.md).
+- The inter-eye distance is about 150 px in the mugshots and 186 px in the ICAO portrait (median), above the
+  ISO minimum of 90 px and the 120 px best practice.
 - 7:9 matches a 35×45 mm passport photo.
 - A *left* profile shows the subject's left side, so they face the *left* edge of the image.
 
@@ -437,7 +473,7 @@ Runs live in three Postgres tables, written as a run renders so pages can follow
 |---|---|---|
 | `runs` | run | name, seed, status (`queued`, `running`, `finished`, `cancelled`, `failed`), shots, captures, renderer, steps, prompt version, traits, subject count, quality report, error, start and finish times |
 | `subjects` | synthetic person | run, position, name (`subject_001`), seed, description, sampled attributes, when every shot was attempted |
-| `images` | shot of a subject | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary (`meta`) and full ground truth, duration, error |
+| `images` | shot of a subject (UUIDv7 id) | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary (`meta`) and full ground truth, duration, error |
 
 Image files are kept by `Phantom.Biometrics.Storage`. The default backend, `Storage.Local`, writes them to
 `config :phantom, :biometrics_output_dir` (default `data/synthetic/biometrics`):
@@ -510,14 +546,18 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   - **Attributes, traits and prompts:** fixed traits for everyone, draws left alone, marks only on request,
     clothing by sex, healed scars, probe variation, age-scaled ageing.
   - **Export:** archive paths, the manifest and hashes, include filters, missing files, the download summary.
+  - **NIST export:** each transaction decoded back and checked (CNT, IDCs, field values, the synthetic marker,
+    image bytes), content and search choices, the ZIP, missing shots. With real images: faces flattened to RGB,
+    WSQ, and NBIS `an2ktool` reading every record (skipped without the NBIS tools).
+- `test/phantom/nist/`: the ANSI/NIST-ITL codec, ported from abis_next, and every record builder's fields.
   - **Shots, request validation, storage, gallery and the quality report.**
 - `test/phantom/services/`: the Qwen and ridgegen clients, and the supervised Python processes.
 - `test/phantom_web/`
   - **The pages:** the new-run form (traits, shot picks, summary), services, run list and statuses, queued
     runs, sections, tiles, detail views with prompt or ground truth, resume, add shots and cancel, download
-    links, the landing page and gallery, and the layout (navigation, footer).
-  - **The controllers:** images (and `?download=1`), subject downloads (the ZIP itself), and the branded error
-    pages.
+    links, the NIST export page, the landing page and gallery, and the layout (navigation, footer).
+  - **The controllers:** images (and `?download=1`, and 404 for unknown ids), subject downloads (the ZIP
+    itself), NIST downloads, and the branded error pages.
 
 `python_biometrics/tests/` (run with `.venv/bin/python -m pytest`) covers:
 
@@ -539,6 +579,8 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   - Record the model and service versions (Qwen checkpoint, torch/diffusers, ridgegen) with each image, so a
     re-render can be checked against its stored SHA-256.
   - The ICAO crop should be tighter: chin to crown should fill about 75% of the image height.
+  - Render mugshots at 3:4 (960×1280) so they can meet ANSI/NIST mugshot level 40, which INTERPOL's format
+    needs (level 30 or higher); see [`image-resolution.md`](image-resolution.md).
   - Build ("heavy-set", "slim") is mostly ignored. This matters little for a head-and-shoulders image.
   - Identity consistency has only been checked by eye. Next, add a face-embedding check against the ABIS
     matcher if its API is available, otherwise ArcFace:
@@ -550,9 +592,12 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   - Slaps: adjacent fingers can touch with hard seams, and the middle phalanx is a straight-edged patch. The
     diffusion renderer makes this more visible. Render plain fingers separately and fix the layout (plan phase 3).
   - Ground-truth minutiae angles point the opposite way from ANSI/INCITS 378 (`mindtct` differs by about 180°).
-  - Add WSQ compression and ANSI/NIST-ITL Type-4/14/15 packaging, and offer it in the download menu.
   - Latent prints are not generated yet.
-- **Downloads:** a whole run as one archive (one folder per person, one manifest).
+  - 500 ppi is the right resolution for now; 1000 ppi only if a target ABIS needs it
+    ([`image-resolution.md`](image-resolution.md)).
+- **Downloads:** a whole run as one archive (one folder per person, one manifest), in both formats.
+- **NIST export:** INTERPOL's XML format (INT-I v6), captures 2 and 3 of the prints as searches, and Type-9
+  ground-truth minutiae ([`nist-export-plan.md`](nist-export-plan.md)).
 - **Later:** an S3 storage backend, and access control before the app is deployed anywhere shared (it has no
   login, so anyone who can reach it can start runs and download).
 
@@ -578,6 +623,9 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom/biometrics/run_request.ex` | Validates the parameters of a new run |
 | `lib/phantom/biometrics/traits.ex` | The appearance a run fixes for everyone: validation, sampling options, display |
 | `lib/phantom/biometrics/export.ex` | One subject as a ZIP: file names, manifest, README, the streamed archive |
+| `lib/phantom/biometrics/nist_export.ex` | One subject as ANSI/NIST-ITL transactions: enrolment and searches, records, the stream |
+| `lib/phantom/biometrics/nist_images.ex` | Image data for NIST records: PNG or WSQ (`cwsq`) prints, faces without alpha |
+| `lib/phantom/nist/` | The ANSI/NIST-ITL codec: record framing and Type-1, 2, 10, 14 and 15 builders |
 | `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
 | `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
@@ -589,10 +637,11 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom_web/live/landing_live.ex` | `/`: what Phantom is, and the gallery of identities |
 | `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form with traits and summary, the run rendering now, run list |
 | `lib/phantom_web/live/biometrics_run_live.ex` | `/biometrics/:run` and `/:run/:subject`: subjects, live progress, detail view, resume, add shots, cancel, download menu |
+| `lib/phantom_web/live/nist_export_live.ex` | `/biometrics/:run/:subject/nist`: the NIST export page |
 | `lib/phantom_web/components/layouts.ex`, `layouts/root.html.heex` | Page frame: header, navigation, footer, theme toggle, icons |
 | `lib/phantom_web/components/biometrics_components.ex` | Shared UI pieces: shot tiles, labels, statuses, progress bar, report |
-| `lib/phantom_web/controllers/image_controller.ex` | Serves image files (and single-image downloads) and ground truth by image id |
-| `lib/phantom_web/controllers/download_controller.ex` | Streams a subject's ZIP |
+| `lib/phantom_web/controllers/image_controller.ex` | Serves image files (and single-image downloads) and ground truth by image id (UUIDv7) |
+| `lib/phantom_web/controllers/download_controller.ex` | Streams a subject's ZIP, and its NIST transactions |
 | `lib/phantom_web/controllers/error_html.ex`, `error_html/` | Branded 404 and 500 pages |
 | `assets/css/app.css`, `priv/static/images/`, `priv/static/fonts/` | Brand: theme colours, the mark and icons, Inter (SIL OFL) |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |

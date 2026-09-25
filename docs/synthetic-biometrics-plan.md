@@ -1,8 +1,8 @@
 # Plan: Synthetic biometrics generator (faces, mugshots, fingerprints, tenprints, palmprints)
 
-Status: draft, 2026-09-23; updated 2026-09-24. Faces, friction ridges, Postgres storage, per-run traits and
-per-person downloads are implemented; see [`synthetic-biometrics.md`](synthetic-biometrics.md) for what exists
-today.
+Status: draft, 2026-09-23; updated 2026-09-25. Faces, friction ridges, Postgres storage, per-run traits,
+per-person downloads and ANSI/NIST-ITL export are implemented; see
+[`synthetic-biometrics.md`](synthetic-biometrics.md) for what exists today.
 
 ## 1. Goal
 
@@ -22,7 +22,8 @@ Every image is saved to storage, either a **local folder** or **S3**, as set in 
 and a `manifest.json` is written next to the images, so an exported folder describes itself.
 
 Out of scope for the first version, but kept possible by the design: ANSI/NIST-ITL (`.an2`) packaging, WSQ
-compression, latent prints, morphs, and quality gates beyond basic checks.
+compression, latent prints, morphs, and quality gates beyond basic checks. (`.an2` packaging and WSQ have since
+been built: [`nist-export-plan.md`](nist-export-plan.md).)
 
 ## 2. What exists today
 
@@ -82,9 +83,9 @@ folder. `GenerateLive` keeps its current behaviour.
 
 ## 4. Image specifications
 
-All friction-ridge images: **8-bit grayscale PNG, 500 ppi** (lossless; WSQ is a later export step). Sizes follow
-the ANSI/NIST-ITL / EBTS maximum capture areas. Check the exact limits against the EBTS version your target system
-uses before you rely on them.
+All friction-ridge images: **8-bit grayscale PNG, 500 ppi** (lossless; the NIST export can compress them as
+WSQ). Sizes follow the ANSI/NIST-ITL / EBTS maximum capture areas. Check the exact limits against the EBTS
+version your target system uses before you rely on them.
 
 | Artifact | Code | Size (in) | Pixels @ 500 ppi |
 |---|---|---|---|
@@ -348,7 +349,7 @@ messages rather than sleeping.
    - NFIQ 2 on fingers and OFIQ on faces, stored in `quality` and used to filter or flag.
    - Face-matcher consistency check across poses.
    - Zip export; ANSI/NIST-ITL Type-2/10/14/15 packaging with Type-2 fields clearly marked as test data; WSQ via
-     NBIS `cwsq`.
+     NBIS `cwsq`. Done, except the quality items: see [`nist-export-plan.md`](nist-export-plan.md).
 
 Run `mix precommit` at the end of each phase.
 
@@ -368,7 +369,9 @@ Run `mix precommit` at the end of each phase.
   phase 4 spike) between Anguli and writing our own.
 - **Open questions for you:**
   1. Which EBTS/ANSI-NIST profile is the target (FBI EBTS, Interpol INT-I, national)? This fixes image sizes and
-     whether `.an2` export matters.
+     whether `.an2` export matters. *Answered 2026-09-25:* INTERPOL. The export does the base standard in
+     Traditional encoding first (as abis_next does); INT-I v6 is XML only and comes later.
   2. Is S3 AWS itself or an on-prem S3-compatible store (MinIO, Ceph)? This affects defaults and presigning.
-  3. Are 1000 ppi images needed, or is 500 ppi enough?
+  3. Are 1000 ppi images needed, or is 500 ppi enough? *Answered 2026-09-25:* 500 ppi, unless a target ABIS
+     needs 1000 ppi; see [`image-resolution.md`](image-resolution.md).
   4. Is Oban acceptable as a dependency, or should jobs stay in-process?

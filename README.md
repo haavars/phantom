@@ -68,9 +68,16 @@ Each person downloads as a ZIP from their page: PNG images named by pose code or
 print, and a `subject.json` manifest with seeds, prompts and SHA-256 hashes
 (`GET /biometrics/<run>/<subject>/download`).
 
+For loading into an ABIS, **Download → NIST (.an2)** on a person's page opens the NIST export
+(`/biometrics/<run>/<subject>/nist`): ANSI/NIST-ITL 1-2011 Update:2015 transactions in Traditional encoding.
+The enrolment holds prints and face, prints only or face only; face probes (aged, changed appearance, …) can be
+added as search transactions; prints are PNG or WSQ (WSQ needs `python_biometrics/setup.sh`, which builds NIST's
+`cwsq`). See [docs/nist-export-plan.md](docs/nist-export-plan.md).
+
 The output is synthetic test data only; don't use it as evidence of matching accuracy or send it to live
 systems.
 
 More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in
-[docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md), and the fingerprint realism work in
-[docs/realistic-fingerprints-plan.md](docs/realistic-fingerprints-plan.md).
+[docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md), the fingerprint realism work in
+[docs/realistic-fingerprints-plan.md](docs/realistic-fingerprints-plan.md), and what resolution faces and prints
+should have in [docs/image-resolution.md](docs/image-resolution.md).
