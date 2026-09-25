@@ -9,6 +9,9 @@ from NIST's measurements of how resolution affects matching. Short version:
 - **Fingerprints:** stay at 500 ppi. Phantom's prints are exactly the standard 500 ppi sizes, and everything
   Phantom verifies with works only at 500 ppi. 1000 ppi only pays off for latents and pore-level detail, which
   Phantom doesn't model.
+- **File sizes:** the prints' pixel sizes are fixed by 500 ppi and the standard areas, and friction ridges don't
+  compress much without loss, so a full palm is about 9 MB as PNG. That's normal. The UI shows small WebP
+  previews instead, which cut a subject's page from about 44 MB to 1.5 MB.
 
 ## 1. Faces
 
@@ -128,6 +131,48 @@ before claiming a FAP level.
    level-3 detail. Then generate at 1000 ppi natively (ridge period about 18–20 px instead of 9–10) and export
    as JPEG 2000, rather than upscale.
 
+## 3. File sizes
+
+Research notes, 2026-09-25: why the friction-ridge files are large, and whether they need to be.
+
+### Where the bytes go
+
+One subject, measured:
+
+| Image | Pixels | Raw 8-bit | PNG (now) | Lossless WebP | WSQ 0.75 bpp |
+|---|---|---|---|---|---|
+| Rolled finger | 800 × 750 | 585 KB | 383 KB | 328 KB | 32 KB |
+| Slap | 1600 × 1500 | 2.3 MB | 942 KB | 816 KB | about 65 KB |
+| Full palm | 2750 × 4000 | 10.7 MB | 8.8 MB | 7.9 MB | 763 KB |
+| Tenprint card | 4000 × 4000 | 15.6 MB | 6.1 MB | 5.5 MB | 648 KB |
+
+- **The pixel sizes can't shrink.** They're 500 ppi times the standard areas (section 2), and every tool and
+  receiver reads them as physical sizes.
+- **Lossless compression of fingerprints tops out at about 2:1.** That's the figure the FBI started from when it
+  chose WSQ at 15:1 in 1993, for cards of about 10 MB uncompressed. Ridges are fine, high-contrast texture; the
+  palm, mostly ridges, gets only 1.2:1 as PNG.
+- **Other lossless formats barely help:** PNG at maximum compression saves 1–2%, lossless WebP about 10%,
+  lossless JPEG 2000 about 5%.
+- **Sensor noise costs some of it.** `ridgegen/impression.py` adds Gaussian noise of σ 4–10 grey levels to every
+  pixel. Without it, rolled prints were 37% smaller, slaps 63% and full palms 18% (8.5 to 6.9 MB). NFIQ 2 didn't
+  get worse without it (41–51 against 37–56 for six rolled prints), so the noise is there for realism, not
+  quality. It isn't the main cost of a palm.
+- **WSQ is 12–15 times smaller.** It's what real systems store and send, and the NIST export writes it. It's lossy,
+  though, and the PNGs are Phantom's masters: verification checks them against the ground truth.
+
+### What the UI downloaded
+
+Tiles used to load the full files: about 44 MB for one subject's page, 33 MB of it prints and palms.
+
+### Recommendations
+
+1. **Show previews in the UI.** *Done 2026-09-25:* `/images/:id/preview` serves a WebP that fits 640 × 640 px
+   (`Phantom.Biometrics.Previews`), made with libvips on first request (60–250 ms) and kept under
+   `_previews/<sha256>.webp`. Previews are 20–80 KB, so one subject's page is about 1.5 MB. The lightbox and
+   downloads still use the full file.
+2. **Keep the pixel sizes and lossless PNG masters.**
+3. **Only if disk space matters:** store WSQ too, or lower the sensor noise to about σ 2, which saves 5–20%.
+
 ## Sources
 
 - ANSI/NIST-ITL 1-2011 Update:2015, NIST SP 500-290 Ed. 3
@@ -145,5 +190,7 @@ before claiming a FAP level.
 - [NIST SP 500-289: Compression Guidance for 1000 ppi Friction Ridge Imagery](https://nvlpubs.nist.gov/nistpubs/specialpublications/NIST.SP.500-289.pdf).
 - [NIST IR 7780: JPEG 2000 compression of 1000 ppi latents](https://nvlpubs.nist.gov/nistpubs/ir/2013/NIST.IR.7780.pdf).
 - [NFIQ 2 documentation](https://pages.nist.gov/NFIQ2/docs/v2.3.0/) and [NFIQ 2 at NIST](https://www.nist.gov/services-resources/software/nfiq-2).
+- Brislawn et al., [The FBI Wavelet/Scalar Quantization standard](https://www.nist.gov/system/files/documents/2020/09/03/11-wsq_bradley_brislawn_standard_ieee_iscs_-_19940530.pdf)
+  and [OSTI summary](https://www.osti.gov/biblio/763151): lossless compression at about 2:1, WSQ at 15:1.
 - [YuNet face detector](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), used for
   the IED measurements.

@@ -215,7 +215,7 @@ defmodule PhantomWeb.NistExportLive do
                   ]}
                 >
                   <img
-                    src={image_url(image)}
+                    src={preview_url(image)}
                     alt={Shots.label(image.shot)}
                     loading="lazy"
                     class="h-16 w-13 shrink-0 rounded-lg bg-base-200 object-cover"

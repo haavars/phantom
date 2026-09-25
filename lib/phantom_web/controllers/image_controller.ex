@@ -1,7 +1,7 @@
 defmodule PhantomWeb.ImageController do
   @moduledoc """
-  Serves a generated image's file (`?download=1` to save it) and its ground
-  truth, by image id (a UUIDv7). Files live in storage (`Phantom.Biometrics.Storage`),
+  Serves a generated image's file (`?download=1` to save it), a small preview
+  of it for thumbnails, and its ground truth, by image id (a UUIDv7). Files live in storage (`Phantom.Biometrics.Storage`),
   outside `priv/static`.
   """
 
@@ -20,6 +20,22 @@ defmodule PhantomWeb.ImageController do
       |> send_file(200, path)
     else
       _ -> send_resp(conn, 404, "Not found")
+    end
+  end
+
+  @doc """
+  Serves a small WebP copy of an image, for thumbnails. Falls back to the
+  image's own file when no preview can be made from it.
+  """
+  def preview(conn, %{"id" => id}) do
+    with {:ok, image} <- Biometrics.get_image(id),
+         {:ok, webp} <- Biometrics.image_preview(image) do
+      conn
+      |> put_resp_content_type("image/webp", nil)
+      |> put_resp_header("cache-control", "private, max-age=60")
+      |> send_resp(200, webp)
+    else
+      _ -> show(conn, %{"id" => id})
     end
   end
 

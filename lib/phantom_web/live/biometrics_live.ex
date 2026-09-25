@@ -956,7 +956,7 @@ defmodule PhantomWeb.BiometricsLive do
             <div class="aspect-[4/5] w-20 shrink-0 overflow-hidden rounded-lg bg-white">
               <img
                 :if={run.cover}
-                src={image_url(run.cover)}
+                src={preview_url(run.cover)}
                 alt=""
                 loading="lazy"
                 class="size-full object-cover transition duration-300 group-hover:scale-105"

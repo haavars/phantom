@@ -27,6 +27,7 @@ defmodule PhantomWeb.Router do
     get "/biometrics/:run/:subject/nist/download", DownloadController, :nist
 
     get "/images/:id", ImageController, :show
+    get "/images/:id/preview", ImageController, :preview
     get "/images/:id/ground-truth", ImageController, :ground_truth
   end
 

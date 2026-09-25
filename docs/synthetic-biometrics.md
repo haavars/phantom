@@ -143,7 +143,10 @@ Runs render in [Oban](https://oban.hexdocs.pm) jobs, not in the page's process:
   alongside a running server. Use `mix run --no-start` for scripts that only need the database.
 
 Runs are stored in Postgres (see [Storage](#storage)). Images are served by id from `/images/:id`
-(`?download=1` to save one), and a friction-ridge image's ground truth from `/images/:id/ground-truth`. Image
+(`?download=1` to save one), a small WebP preview of it from `/images/:id/preview`, and a friction-ridge image's
+ground truth from `/images/:id/ground-truth`. Tiles and cards show the preview (at most 640 px, 20–80 KB); the
+lightbox and downloads use the full file. A subject's files come to about 44 MB, mostly palms and the tenprint
+card, and its previews to about 1.5 MB (see [image-resolution.md](image-resolution.md#3-file-sizes)). Image
 ids are UUIDv7s, never reused, so a browser that keeps images by URL can't show an old picture after the
 database is reset.
 
@@ -514,11 +517,14 @@ data/synthetic/biometrics/<run>/
     palm_21.png
     tenprint_card.png
     ...
+data/synthetic/biometrics/_previews/
+  <sha256>.webp            (thumbnail of the file with that hash, made on first request)
 ```
 
 The database only stores each file's key (`<run>/subject_001/rolled_01.png`), so another backend (S3, say) can
 implement the `Storage` behaviour (`put`, `read`, `stream`, `exists?`, `local_path`) and be set with
-`config :phantom, :biometrics_storage`.
+`config :phantom, :biometrics_storage`. `Storage.Local` writes each file to a temporary name and renames it, so a
+reader never sees half a file.
 
 ## Qwen service changes
 
@@ -653,6 +659,7 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom/biometrics/nist_images.ex` | Image data for NIST records: PNG or WSQ (`cwsq`) prints, faces without alpha |
 | `lib/phantom/nist/` | The ANSI/NIST-ITL codec: record framing and Type-1, 2, 10, 14 and 15 builders |
 | `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
+| `lib/phantom/biometrics/previews.ex` | Small WebP copies of images for thumbnails, made on first request and kept by hash |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
 | `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
 | `lib/phantom/biometrics/gallery.ex` | Identities for the landing page gallery |

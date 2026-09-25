@@ -51,6 +51,12 @@ defmodule PhantomWeb.BiometricsComponents do
   @doc "URL of an image's file."
   def image_url(%{id: id}), do: ~p"/images/#{id}"
 
+  @doc """
+  URL of a small WebP copy of an image (at most 640 px), for thumbnails. Full
+  images are up to 9 MB (a full palm), too much for a page of tiles.
+  """
+  def preview_url(%{id: id}), do: ~p"/images/#{id}/preview"
+
   @doc "URL of an image's ground truth (friction-ridge shots)."
   def ground_truth_url(%{id: id}), do: ~p"/images/#{id}/ground-truth"
 
@@ -232,7 +238,7 @@ defmodule PhantomWeb.BiometricsComponents do
             style={@aspect}
           >
             <img
-              src={image_url(@record)}
+              src={preview_url(@record)}
               alt={"#{shot_label(@shot)} of #{@subject.name}"}
               loading="lazy"
               class={[

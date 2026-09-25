@@ -32,6 +32,7 @@ defmodule Phantom.Biometrics do
     Gallery,
     Image,
     NistExport,
+    Previews,
     Report,
     Run,
     RunRequest,
@@ -442,6 +443,9 @@ defmodule Phantom.Biometrics do
   @doc "A local path to an image's file, to send it."
   def image_path(%Image{storage_key: key}) when is_binary(key), do: Storage.local_path(key)
   def image_path(_image), do: :error
+
+  @doc "A small WebP copy of an image, for thumbnails (see `Phantom.Biometrics.Previews`)."
+  def image_preview(%Image{} = image), do: Previews.fetch(image)
 
   defdelegate identities(limit \\ 48), to: Gallery
   defdelegate identity_stats(identities), to: Gallery, as: :stats

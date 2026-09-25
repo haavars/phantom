@@ -6,7 +6,8 @@ defmodule PhantomWeb.LandingLive do
 
   use PhantomWeb, :live_view
 
-  import PhantomWeb.BiometricsComponents, only: [image_url: 1, pattern_abbrev: 1, pattern_name: 1]
+  import PhantomWeb.BiometricsComponents,
+    only: [preview_url: 1, pattern_abbrev: 1, pattern_name: 1]
 
   alias Phantom.Biometrics.{Gallery, Shots}
 
@@ -215,7 +216,7 @@ defmodule PhantomWeb.LandingLive do
         <div class="aspect-[4/5]">
           <%= if @face do %>
             <img
-              src={image_url(@face.portrait)}
+              src={preview_url(@face.portrait)}
               alt=""
               class="size-full object-cover"
               fetchpriority="high"
@@ -240,7 +241,7 @@ defmodule PhantomWeb.LandingLive do
         <div class="aspect-[16/15] p-3">
           <%= if @print_image do %>
             <img
-              src={image_url(@print_image)}
+              src={preview_url(@print_image)}
               alt=""
               class="size-full object-contain mix-blend-multiply"
             />
@@ -363,7 +364,7 @@ defmodule PhantomWeb.LandingLive do
           <%= cond do %>
             <% @identity.portrait -> %>
               <img
-                src={image_url(@identity.portrait)}
+                src={preview_url(@identity.portrait)}
                 alt={"Synthetic portrait of #{@identity.description}"}
                 loading="lazy"
                 class="size-full object-cover text-transparent transition duration-500 group-hover:scale-[1.03]"
@@ -374,7 +375,7 @@ defmodule PhantomWeb.LandingLive do
               >
                 <img
                   :for={print <- @strip}
-                  src={image_url(print.image)}
+                  src={preview_url(print.image)}
                   alt=""
                   loading="lazy"
                   class="aspect-square w-full object-cover text-transparent mix-blend-multiply"
@@ -384,7 +385,7 @@ defmodule PhantomWeb.LandingLive do
               <div class="grid size-full grid-cols-2 gap-px bg-neutral-200">
                 <div :for={print <- @mosaic} class="overflow-hidden bg-white">
                   <img
-                    src={image_url(print.image)}
+                    src={preview_url(print.image)}
                     alt={"Rolled print, #{Shots.label(print.image.shot)}"}
                     loading="lazy"
                     class="size-full scale-[1.2] object-cover text-transparent mix-blend-multiply transition duration-500 group-hover:scale-[1.26]"
