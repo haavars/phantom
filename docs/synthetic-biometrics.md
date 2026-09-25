@@ -30,7 +30,7 @@ You can drive it from IEx or from the web UI.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
-  clothing by sex, the low-resolution probe; now `faces-v11`) haven't been checked on a large set of real renders yet.
+  clothing by sex, the low-resolution probe, facial features; now `faces-v13`) haven't been checked on a large set of real renders yet.
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -322,6 +322,7 @@ prompt ends with "must look N, no older".
 - sex, age, ancestry
 - skin tone, eye colour, hair colour and style, facial hair
 - face shape, build, clothing
+- facial features: one each for nose, eyes, eyebrows, mouth, jaw and chin, cheekbones and ears
 - distinguishing marks (mole, scar, freckles and similar)
 
 How they're chosen:
@@ -330,15 +331,29 @@ How they're chosen:
   appearances.
 - Skin, eye and hair colours come from ranges that fit the ancestry.
 - Grey hair and receding hairlines become more likely with age.
+- Facial features give each face its own structure. Without them the model draws much the same nose, eyes and
+  mouth for everyone of a sex, age and ancestry, however their hair and clothes differ. They're drawn after
+  everything else, so they don't change the other attributes a seed gives, and they can't be fixed by a run.
+  They're worded strongly ("a very prominent hooked nose", not "a hooked nose") and framed as "an ordinary,
+  unglamorous face… not a model's": in test renders mild wording barely changed the face. See
+  [Face diversity](#face-diversity) for how the prompt structure was chosen.
 - Clothing (38 everyday items) is drawn from the ones for anyone and those for the person's sex. Each item has
   a main colour, so probes can change into a different one.
 - Options: `female_share`, `age_range` and `ancestry_weights`, to match a specific population, and fixed values
   for any attribute (below).
 
-`describe/1` renders the attributes as the sentence used in the anchor prompt, for example:
+`describe/1` renders the attributes as the sentences used in the anchor prompt, face first, for example:
 
-> a 69-year-old man of Latin American descent with light brown skin, hazel eyes, a round face, an average
-> build, medium-length wavy white hair and a short full beard.
+> a 29-year-old man with an ordinary, unglamorous face with its own irregular proportions and features, not a
+> model's or an idealised face: a very short upturned nose, noticeably close-set eyes, very thin arched
+> eyebrows, a small narrow mouth, a very wide jaw, flat barely visible cheekbones and noticeably protruding
+> ears. The first things anyone notices about his face are flat barely visible cheekbones and a very short
+> upturned nose, and his face is slightly asymmetric. He is of Middle Eastern descent, with light brown skin,
+> hazel eyes, a square face, a slim build, medium-length straight black hair and clean-shaven. He has freckles
+> across the nose and cheeks.
+
+The two features called out are chosen by the seed. Subjects sampled before there were features are described
+as before: who they are, then how they look.
 
 ### Traits
 
@@ -388,7 +403,7 @@ target state.**
 The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
 colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v11`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v13`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
@@ -402,6 +417,46 @@ Every run records `FacePrompts.version/0` (currently `faces-v11`). Bump it whene
 | v8 | Mugshots and probes render at 960×1280 (3:4). New low-resolution probe. |
 | v9–v10 | The re-booking keeps the booking setup. New uncooperative probe. |
 | v11 | The low-resolution probe is taken in one of 14 scenes, indoors and out, not always the same room. |
+| v12 | Seven sampled facial features (nose, eyes, eyebrows, mouth, jaw, cheeks, ears), strongly worded. |
+| v13 | The anchor describes the face first and calls out two features as the most noticeable. |
+
+### Face diversity
+
+Different people used to look alike: the same brows, nose and mouth under different hair and clothes. The
+attributes give about 30 bits per person and prompts almost never repeat, but only "face shape" described the
+face itself, and the model mostly ignored it. The diffusion seed changes little for a fixed prompt either: it
+moves pose and framing, not the identity. So facial structure has to come from the prompt.
+
+Measured with ArcFace (InsightFace `buffalo_l`, cosine similarity between the anchors of *different* people;
+lower is better). Real photos of strangers score around 0 to 0.1, the best synthetic face datasets centre around
+0, and about 0.4 is where a matcher starts to call two faces the same person. Test set: 8 Northern European
+people (4 women, 4 men; one ancestry is the hardest case), each rendered with every variant from the same
+noise seed:
+
+| Variant | Mean | Same sex | Pairs > 0.3 | Max | Looks |
+|---|---|---|---|---|---|
+| v11, no facial features | 0.238 | 0.298 | 25 % | 0.398 | realistic, alike |
+| v12, features after age, hair and clothing | 0.201 | 0.222 | 14 % | 0.352 | realistic |
+| Features first | 0.179 | 0.218 | 11 % | 0.403 | realistic |
+| Features as a structured list | 0.207 | 0.229 | 14 % | 0.415 | realistic |
+| **Features first, two called out, "slightly asymmetric" (v13)** | **0.165** | **0.184** | **7 %** | **0.312** | **realistic** |
+| Short prompt (80 words) | 0.142 | 0.162 | 11 % | 0.541 | caricatures |
+| v13 with a shorter setup and "not a caricature" | 0.184 | 0.188 | 4 % | 0.326 | realistic |
+
+What that shows:
+
+- **Order matters.** Features before age, hair and clothing are followed more than after them.
+- **Calling two out helps most.** "The first things anyone notices about her face are …" plus a slightly
+  asymmetric face gave the lowest similarity that still looks like a photograph.
+- **Structure doesn't.** A bullet list is followed no better than prose.
+- **Too short overshoots.** Features dominate a short prompt and turn into caricatures, and caricatures look
+  alike again: two people with huge noses matched at 0.54.
+- Mild wording ("a hooked nose") barely moves the model off its default face, hence the strong wording.
+
+With 28 pairs per variant, differences of about 0.02 are noise. v13 is still some way from real strangers (about
+0.17 against 0 to 0.1). The next steps are a diversity gate (re-roll an anchor that's too similar to an earlier
+subject of the run) and conditioning the anchor on real faces from open datasets, in
+[`face-source-conditioning-plan.md`](face-source-conditioning-plan.md).
 
 ## Friction ridges
 
@@ -614,10 +669,13 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   - Render mugshots at 3:4 (960×1280) so they can meet ANSI/NIST mugshot level 40, which INTERPOL's format
     needs (level 30 or higher); see [`image-resolution.md`](image-resolution.md).
   - Build ("heavy-set", "slim") is mostly ignored. This matters little for a head-and-shoulders image.
-  - Identity consistency has only been checked by eye. Next, add a face-embedding check against the ABIS
-    matcher if its API is available, otherwise ArcFace:
+  - Faces are still more alike than real strangers: a mean ArcFace similarity of about 0.17 between different
+    people with `faces-v13`, against 0 to 0.1 for real photos ([Face diversity](#face-diversity)). Next, a
+    face-embedding check in the pipeline (the ABIS matcher if its API is available, otherwise ArcFace):
     - reject new subjects that are too similar to existing ones
     - reject probes that no longer match their anchor
+  - Condition anchors on several real faces from open datasets, with a leakage gate:
+    [`face-source-conditioning-plan.md`](face-source-conditioning-plan.md).
 - **Friction ridges**
   - Next steps of [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md): acquisition styles
     (livescan, dry, low quality) need a conditioned model; the diffusion model only knows inked rolled prints.

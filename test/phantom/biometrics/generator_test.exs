@@ -232,7 +232,8 @@ defmodule Phantom.Biometrics.GeneratorTest do
                subject.attributes
 
       assert age in 30..39
-      assert subject.description =~ "woman of Northern European descent"
+      assert subject.description =~ ~r/^an? \d+-year-old woman with /
+      assert subject.description =~ "She is of Northern European descent"
       assert image(run, subject.name, "mugshot_frontal").prompt =~ "Northern European"
     end
 

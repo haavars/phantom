@@ -30,7 +30,8 @@ defmodule Phantom.Biometrics.FaceAttributes do
     :face_shape,
     :build,
     :clothing,
-    marks: []
+    marks: [],
+    features: []
   ]
 
   @type t :: %__MODULE__{}
@@ -199,6 +200,78 @@ defmodule Phantom.Biometrics.FaceAttributes do
     "prominent dark circles under the eyes"
   ]
 
+  # Facial structure, one draw from each group: what makes one face look unlike
+  # another once hair, age and clothing are set aside. Without these the model
+  # draws much the same features for everyone of a sex, age and ancestry. Mild
+  # wording ("a hooked nose") barely moves it off that face, so they're strong.
+  @features [
+    nose: [
+      "a noticeably long straight nose",
+      "a very short upturned nose",
+      "a very broad nose with a bulbous tip",
+      "a very narrow pointed nose",
+      "a very prominent hooked nose",
+      "a nose with a clear bump on the bridge",
+      "a very small snub nose",
+      "a wide nose with a very flat bridge",
+      "a very large fleshy nose"
+    ],
+    eyes: [
+      "deeply set eyes",
+      "very wide-set eyes",
+      "noticeably close-set eyes",
+      "heavily hooded eyes",
+      "unusually large round eyes",
+      "very small narrow eyes",
+      "strongly downturned eyes",
+      "strongly upturned almond-shaped eyes",
+      "very heavy-lidded eyes"
+    ],
+    eyebrows: [
+      "very thick straight eyebrows",
+      "very thin arched eyebrows",
+      "very bushy eyebrows",
+      "very sparse eyebrows",
+      "low heavy eyebrows set close to the eyes",
+      "high rounded eyebrows far above the eyes",
+      "angled eyebrows that slope down at the outer ends"
+    ],
+    mouth: [
+      "very thin lips",
+      "noticeably full lips",
+      "a very wide mouth",
+      "a small mouth with a pronounced Cupid's bow",
+      "a very thin upper lip and a fuller lower lip",
+      "a mouth with clearly downturned corners",
+      "a small narrow mouth"
+    ],
+    jaw: [
+      "a very strong square jaw",
+      "a narrow sharply pointed chin",
+      "a small clearly receding chin",
+      "a deep cleft chin",
+      "a prominent jutting chin",
+      "a very wide jaw",
+      "a soft rounded jawline with little definition",
+      "a noticeably long chin"
+    ],
+    cheeks: [
+      "very high prominent cheekbones",
+      "flat barely visible cheekbones",
+      "very full rounded cheeks",
+      "deeply hollow cheeks",
+      "very wide cheekbones",
+      "sharply defined cheekbones"
+    ],
+    ears: [
+      "ears set close to the head",
+      "noticeably protruding ears",
+      "very large ears",
+      "very small ears",
+      "ears with very long lobes"
+    ]
+  ]
+
   # Everyday clothes, as `{description, main colour}`: for anyone, then for
   # women and for men. A person is sampled from the ones for anyone and for
   # their sex. The colour is what shows most in a head-and-shoulders photo;
@@ -314,6 +387,13 @@ defmodule Phantom.Biometrics.FaceAttributes do
   def builds, do: Enum.map(@builds, &elem(&1, 0))
   def marks, do: @marks
 
+  # Pulls the model off the idealised face it draws by default.
+  @ordinary_face "an ordinary, unglamorous face with its own irregular proportions and " <>
+                   "features, not a model's or an idealised face"
+
+  @doc "The facial features sampled for everyone, as `{group, options}`: one of each group."
+  def features, do: @features
+
   @doc """
   Samples attributes for `seed`.
 
@@ -367,7 +447,9 @@ defmodule Phantom.Biometrics.FaceAttributes do
     {face_shape, rng} = @face_shapes |> pick(rng) |> fixed(opts[:face_shape])
     {build, rng} = @builds |> weighted(rng) |> fixed(opts[:build])
     {clothing, rng} = sex |> clothing() |> pick(rng) |> fixed(opts[:clothing])
-    {marks, _rng} = rng |> marks() |> fixed(opts[:marks])
+    {marks, rng} = rng |> marks() |> fixed(opts[:marks])
+    # Drawn last, so the draws above are the same as before there were features.
+    {features, _rng} = features(rng)
     hair = fill_hair(hair_style, texture, hair_color)
 
     %__MODULE__{
@@ -383,7 +465,8 @@ defmodule Phantom.Biometrics.FaceAttributes do
       face_shape: face_shape,
       build: build,
       clothing: clothing,
-      marks: marks
+      marks: marks,
+      features: features
     }
   end
 
@@ -398,7 +481,7 @@ defmodule Phantom.Biometrics.FaceAttributes do
           do: {key, Map.fetch!(map, Atom.to_string(key))}
 
     attrs = struct!(__MODULE__, fields)
-    %{attrs | sex: sex(attrs.sex), marks: attrs.marks || []}
+    %{attrs | sex: sex(attrs.sex), marks: attrs.marks || [], features: attrs.features || []}
   end
 
   defp sex("female"), do: :female
@@ -406,30 +489,57 @@ defmodule Phantom.Biometrics.FaceAttributes do
   defp sex(sex), do: sex
 
   @doc """
-  Describes the person in one or two sentences, e.g. "a 34-year-old man of West
-  African descent with dark brown skin, ...".
+  Describes the person in a few sentences, face first: "a 34-year-old man
+  with an ordinary, unglamorous face ...: a very prominent hooked nose, deeply
+  set eyes, ... The first things anyone notices about his face are ... He is of
+  West African descent, with dark brown skin, ...".
+
+  The face comes first, and two of its features are called out as the most
+  noticeable, because that's what the model follows most: in test renders
+  this spread faces further apart than the same features after age, hair and
+  clothing. Attributes without features (subjects sampled before they
+  existed) are described as they were then: who, then how they look.
   """
+  def describe(%__MODULE__{features: []} = attrs) do
+    "#{article(attrs.age)} #{attrs.age}-year-old #{noun(attrs)} of #{attrs.ancestry} descent with " <>
+      to_sentence(appearance(attrs)) <> "." <> marks_sentence(attrs)
+  end
+
   def describe(%__MODULE__{} = attrs) do
-    noun = if attrs.sex == :female, do: "woman", else: "man"
-    pronoun = if attrs.sex == :female, do: "She", else: "He"
+    {pronoun, possessive} = pronouns(attrs)
+    [first, second] = noticeable(attrs)
 
-    features =
-      [
-        "#{attrs.skin_tone} skin",
-        "#{attrs.eye_color} eyes",
-        "#{article(attrs.face_shape)} #{attrs.face_shape} face",
-        "#{article(attrs.build)} #{attrs.build} build",
-        attrs.hair
-      ] ++ List.wrap(attrs.facial_hair)
+    "#{article(attrs.age)} #{attrs.age}-year-old #{noun(attrs)} with #{@ordinary_face}: " <>
+      "#{to_sentence(attrs.features)}. The first things anyone notices about #{possessive} " <>
+      "face are #{first} and #{second}, and #{possessive} face is slightly asymmetric. " <>
+      "#{pronoun} is of #{attrs.ancestry} descent, with #{to_sentence(appearance(attrs))}." <>
+      marks_sentence(attrs)
+  end
 
-    first =
-      "#{article(attrs.age)} #{attrs.age}-year-old #{noun} of #{attrs.ancestry} descent with " <>
-        to_sentence(features)
+  defp noun(attrs), do: if(attrs.sex == :female, do: "woman", else: "man")
+  defp pronouns(%{sex: :female}), do: {"She", "her"}
+  defp pronouns(_attrs), do: {"He", "his"}
 
-    case attrs.marks do
-      [] -> first <> "."
-      marks -> first <> ". #{pronoun} has #{to_sentence(marks)}."
-    end
+  defp appearance(attrs) do
+    [
+      "#{attrs.skin_tone} skin",
+      "#{attrs.eye_color} eyes",
+      "#{article(attrs.face_shape)} #{attrs.face_shape} face",
+      "#{article(attrs.build)} #{attrs.build} build",
+      attrs.hair
+    ] ++ List.wrap(attrs.facial_hair)
+  end
+
+  defp marks_sentence(%{marks: []}), do: ""
+  defp marks_sentence(attrs), do: " #{elem(pronouns(attrs), 0)} has #{to_sentence(attrs.marks)}."
+
+  # Two different features, chosen by the seed so a person always gets the same two.
+  defp noticeable(%{seed: seed, features: features}) do
+    count = length(features)
+    first = rem(seed, count)
+    second = rem(div(seed, count), count - 1)
+    second = if second >= first, do: second + 1, else: second
+    [Enum.at(features, first), Enum.at(features, second)]
   end
 
   defp age_hair_color(color, age, rng) do
@@ -484,6 +594,9 @@ defmodule Phantom.Biometrics.FaceAttributes do
       {[], rng}
     end
   end
+
+  defp features(rng),
+    do: Enum.map_reduce(@features, rng, fn {_group, options}, rng -> pick(options, rng) end)
 
   defp pick(list, rng) do
     {index, rng} = :rand.uniform_s(length(list), rng)

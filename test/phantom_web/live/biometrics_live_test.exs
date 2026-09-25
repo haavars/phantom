@@ -94,7 +94,8 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#traits-summary", "Female")
     assert has_element?(view, "#traits-summary", "Northern European")
     assert has_element?(view, "#traits-summary", "30–75 years")
-    assert has_element?(view, "#traits-example", "woman of Northern European descent")
+    assert has_element?(view, "#traits-example", "-year-old woman with")
+    assert has_element?(view, "#traits-example", "She is of Northern European descent")
     # Women have no facial hair; colours are the ones the ancestry has.
     assert has_element?(view, "#batch_traits_0_facial_hair[disabled]")
     assert has_element?(view, "#batch_traits_0_sex_female[checked]")

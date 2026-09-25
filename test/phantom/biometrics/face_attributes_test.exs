@@ -88,6 +88,64 @@ defmodule Phantom.Biometrics.FaceAttributesTest do
     end
   end
 
+  test "everyone gets one feature from each group of facial features" do
+    for seed <- 1..200 do
+      attrs = FaceAttributes.sample(seed)
+      groups = FaceAttributes.features()
+
+      assert length(attrs.features) == length(groups)
+
+      for {feature, {_group, options}} <- Enum.zip(attrs.features, groups),
+          do: assert(feature in options)
+    end
+
+    # Varied between people, not one face for everyone.
+    noses = MapSet.new(1..200, &hd(FaceAttributes.sample(&1).features))
+    assert MapSet.size(noses) > 5
+  end
+
+  test "features are drawn after the other attributes, which stay the same" do
+    attrs = FaceAttributes.sample(1234)
+    fixed = FaceAttributes.sample(1234, sex: :female, ancestry: "East Asian", marks: [])
+
+    assert attrs.features == fixed.features
+  end
+
+  test "describe/1 puts the face first and calls out two of its features" do
+    attrs = FaceAttributes.sample(7)
+    description = FaceAttributes.describe(attrs)
+
+    assert description =~ ~r/^an? \d+-year-old (wo)?man with an ordinary, unglamorous face/
+    for feature <- attrs.features, do: assert(description =~ feature)
+
+    [_, first, second] =
+      Regex.run(
+        ~r/first things anyone notices about \w+ face are (.+) and (.+), and/,
+        description
+      )
+
+    assert first != second
+    assert first in attrs.features and second in attrs.features
+
+    # The face comes before who they are and how they look.
+    {face_at, _} = :binary.match(description, hd(attrs.features))
+    {ancestry_at, _} = :binary.match(description, attrs.ancestry)
+    assert face_at < ancestry_at
+
+    # The same person always gets the same two.
+    assert FaceAttributes.describe(attrs) == description
+  end
+
+  test "describe/1 describes subjects stored without features as before" do
+    attrs = FaceAttributes.sample(7)
+    stored = attrs |> FaceAttributes.to_map() |> Map.delete("features")
+    old = FaceAttributes.from_map(stored)
+
+    assert old.features == []
+    assert FaceAttributes.describe(old) =~ ~r/^an? \d+-year-old (wo)?man of .+ descent with /
+    refute FaceAttributes.describe(old) =~ "unglamorous"
+  end
+
   test "describe/1 mentions the core attributes" do
     attrs = FaceAttributes.sample(7)
     description = FaceAttributes.describe(attrs)
