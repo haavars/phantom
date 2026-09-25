@@ -80,4 +80,5 @@ systems.
 More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in
 [docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md), the fingerprint realism work in
 [docs/realistic-fingerprints-plan.md](docs/realistic-fingerprints-plan.md), and what resolution faces and prints
-should have in [docs/image-resolution.md](docs/image-resolution.md).
+should have in [docs/image-resolution.md](docs/image-resolution.md). How colleagues reach the app over Tailscale
+is in [docs/remote-access.md](docs/remote-access.md).
