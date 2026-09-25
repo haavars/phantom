@@ -30,6 +30,12 @@ The Python services (`:8000`, `:8001`) stay on 127.0.0.1 and are reached only th
 2. Restrict shared users to Phantom in the tailnet policy file. With the default allow-all policy they can also
    reach SSH (22) and the MicroK8s API and kubelet ports (16443, 10250, …) on store-1.
 
+## Sharing files outside the tailnet
+
+With an S3 bucket configured (Cloudflare R2, see [`s3-export-plan.md`](s3-export-plan.md)), a person's page and
+the NIST export page can upload a download and give back a presigned link that works without Tailscale for up to
+7 days. The bucket stays private and deletes files after 14 days; the app itself is still only on the tailnet.
+
 ## Known gaps
 
 - The app runs as `mix phx.server` in dev mode, so it's down whenever that terminal session or the machine is.
