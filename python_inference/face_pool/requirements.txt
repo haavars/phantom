@@ -1,0 +1,12 @@
+# CPU only: the pool is built beside the GPU inference service, not on the GPU.
+numpy<2.3
+pandas
+pyarrow
+opencv-python-headless
+scikit-image
+onnxruntime
+insightface
+open_clip_torch
+huggingface_hub
+pillow
+pytest

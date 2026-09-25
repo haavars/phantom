@@ -42,6 +42,10 @@ npm-debug.log
 # Python inference service virtualenv and downloaded model weights
 /python_inference/.venv/
 /python_inference/__pycache__/
+/python_inference/face_pool/.venv/
+/python_inference/face_pool/**/__pycache__/
+/python_inference/face_pool/.pytest_cache/
+/python_inference/.pytest_cache/
 
 
 # Synthetic biometrics output (face harness runs etc.)

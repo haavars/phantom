@@ -64,7 +64,9 @@ for thousands of subjects, even in the smaller groups.
 
 ## 4. Building the pool
 
-A one-off script, `python_inference/face_pool/build.py`, run per dataset, idempotent:
+As run on FairFace, with the thresholds and numbers: [`face-pool.md`](face-pool.md). The outline:
+
+`python_inference/face_pool/`, run per dataset (`python -m face_pool all <dataset>`):
 
 1. **Download** into `data/face_pool/raw/<dataset>/` (outside git, like `data/synthetic/`).
 2. **Detect and align** with InsightFace (`buffalo_l`: SCRFD detector plus 5 landmarks). Keep images with

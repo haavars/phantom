@@ -736,5 +736,6 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom_web/controllers/error_html.ex`, `error_html/` | Branded 404 and 500 pages |
 | `assets/css/app.css`, `priv/static/images/`, `priv/static/fonts/` | Brand: theme colours, the mark and icons, Inter (SIL OFL) |
 | `python_inference/server.py` | Qwen-Image-2.1 FastAPI service (size-dependent VAE tiling) |
+| `python_inference/face_pool/` | Builds the face pool from open face datasets: embed, landmarks, CLIP screen, filters ([`face-pool.md`](face-pool.md)) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
 | `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |
