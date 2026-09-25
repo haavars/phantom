@@ -232,7 +232,7 @@ defmodule Phantom.Biometrics.NistExportTest do
       {:ok, export} = Biometrics.nist_export(name, "subject_001", %{content: "faces"})
       [_type1, _type2, frontal | _] = decode(export, hd(export.transactions))
 
-      assert %{6 => "896", 7 => "1120", 11 => "PNG", 12 => "SRGB"} = frontal.fields
+      assert %{6 => "960", 7 => "1280", 11 => "PNG", 12 => "SRGB"} = frontal.fields
       # IHDR colour type 2: RGB, no alpha.
       assert <<137, 80, 78, 71, _::binary-size(21), 2, _::binary>> = frontal.fields[999]
     end

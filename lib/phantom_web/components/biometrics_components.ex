@@ -22,7 +22,8 @@ defmodule PhantomWeb.BiometricsComponents do
     "probe_rebooking" => "A year later: harsh light, other clothes.",
     "probe_aged" => "The same person 15 years later.",
     "probe_glasses" => "Glasses, window light.",
-    "probe_appearance" => "Beard or hairstyle changed."
+    "probe_appearance" => "Beard or hairstyle changed.",
+    "probe_low_res" => "A small phone snapshot, 240×320."
   }
 
   # Probes also get a slight head angle and expression of their own (see

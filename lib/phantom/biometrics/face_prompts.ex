@@ -9,8 +9,14 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   Sizes:
 
-    * mugshots are 4:5 (896×1120), the ANSI/NIST-ITL Type-10 best-practice aspect
+    * mugshots and probes are 3:4 (960×1280), the size and aspect of an
+      ANSI/NIST-ITL level-40 mugshot (at least 768×1024)
     * ICAO portraits are 7:9 (896×1152), the 35×45 mm passport-photo aspect
+    * the low-resolution probe is rendered as a mugshot and scaled down
+      (`:downscale`) to 240×320, for an inter-eye distance of about 40 px,
+      as in real search images that are much worse than the enrolment
+
+  A shot rendered before keeps its stored size when it's rendered again.
 
   `pos` is the ANSI/NIST-ITL Type-10 subject pose code: `F` frontal, `L` left
   profile, `R` right profile, `A` angled. A left profile shows the subject's left
@@ -20,7 +26,7 @@ defmodule Phantom.Biometrics.FacePrompts do
   show scars as the anchor does. Every other shot is taken at another time,
   and any scar in it has healed.
 
-  The probes (re-booking, aged, glasses, appearance) are other photos than the
+  The probes (re-booking, aged, glasses, appearance, low resolution) are other photos than the
   reference, so each gets its own slight head angle and expression
   (`variation/2`), for testing face matching across pose and expression. The
   ICAO portrait stays compliant: frontal, neutral.
@@ -31,10 +37,12 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v7"
+  @version "faces-v8"
 
-  @mugshot {896, 1120}
+  @mugshot {960, 1280}
   @icao {896, 1152}
+  @low_res_scale 4
+  @low_res {div(elem(@mugshot, 0), @low_res_scale), div(elem(@mugshot, 1), @low_res_scale)}
 
   @shots [
     %{id: "mugshot_frontal", pos: "F", size: @mugshot, anchor?: true},
@@ -46,7 +54,8 @@ defmodule Phantom.Biometrics.FacePrompts do
     %{id: "probe_rebooking", pos: "F", size: @mugshot, anchor?: false},
     %{id: "probe_aged", pos: "F", size: @mugshot, anchor?: false},
     %{id: "probe_glasses", pos: "F", size: @mugshot, anchor?: false},
-    %{id: "probe_appearance", pos: "F", size: @mugshot, anchor?: false}
+    %{id: "probe_appearance", pos: "F", size: @mugshot, anchor?: false},
+    %{id: "probe_low_res", pos: "F", size: @low_res, downscale: @low_res_scale, anchor?: false}
   ]
 
   @default_shots ~w(mugshot_frontal mugshot_left_profile mugshot_right_profile icao_portrait probe_rebooking probe_aged)
@@ -60,8 +69,14 @@ defmodule Phantom.Biometrics.FacePrompts do
   def default_shots, do: @default_shots
   def anchor_shot, do: "mugshot_frontal"
 
-  @doc "Returns the spec map (`:id`, `:pos`, `:size`, `:anchor?`) for a shot id, or `nil`."
-  def spec(id), do: Enum.find(@shots, &(&1.id == id))
+  @doc """
+  Returns the spec map for a shot id, or `nil`: `:id`, `:pos`, `:size` (of
+  the stored image), `:anchor?`, and `:downscale`, how many times larger
+  than `:size` it's rendered (1 for all but the low-resolution probe).
+  """
+  def spec(id) do
+    with %{} = shot <- Enum.find(@shots, &(&1.id == id)), do: Map.put_new(shot, :downscale, 1)
+  end
 
   @doc "Builds the prompt for shot `id` of the person described by `attrs`."
   def prompt("mugshot_frontal", attrs) do
@@ -189,6 +204,22 @@ defmodule Phantom.Biometrics.FacePrompts do
       [change, "#{subject(attrs)} now wears #{alternate_clothing(attrs, 5)}"] ++
         varied("probe_appearance", attrs),
       "head and upper shoulders, plain mid-grey background, even flash lighting"
+    )
+  end
+
+  # Rendered at mugshot size like the other probes, then scaled down: the
+  # face model makes clean faces at any size, so the resolution comes from
+  # the scaling, the ordinary snapshot from the prompt.
+  def prompt("probe_low_res", attrs) do
+    edit(
+      attrs,
+      "Edit the reference photo into an ordinary snapshot of the same person, taken indoors with a phone camera.",
+      [
+        "#{subject(attrs)} now wears #{alternate_clothing(attrs, 6)}",
+        "dim, warm light from a ceiling lamp, a little uneven across the face",
+        "the background is an ordinary room, slightly out of focus"
+      ] ++ varied("probe_low_res", attrs),
+      "head and upper shoulders in frame"
     )
   end
 

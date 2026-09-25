@@ -30,7 +30,7 @@ You can drive it from IEx or from the web UI.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
-  clothing by sex; now `faces-v7`) haven't been checked on a large set of real renders yet.
+  clothing by sex, the low-resolution probe; now `faces-v8`) haven't been checked on a large set of real renders yet.
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -247,22 +247,25 @@ Friction-ridge shots are described under [Friction ridges](#friction-ridges).
 
 | Shot | ANSI/NIST pose | Size | Source |
 |---|---|---|---|
-| `mugshot_frontal` | F | 896×1120 (4:5) | text only (anchor) |
-| `mugshot_left_profile` | L | 896×1120 | anchor |
-| `mugshot_right_profile` | R | 896×1120 | anchor |
-| `mugshot_three_quarter_left` / `_right` | A | 896×1120 | anchor |
+| `mugshot_frontal` | F | 960×1280 (3:4) | text only (anchor) |
+| `mugshot_left_profile` | L | 960×1280 | anchor |
+| `mugshot_right_profile` | R | 960×1280 | anchor |
+| `mugshot_three_quarter_left` / `_right` | A | 960×1280 | anchor |
 | `icao_portrait` | F | 896×1152 (7:9, 35×45 mm) | anchor |
-| `probe_rebooking` | F | 896×1120 | anchor |
-| `probe_aged` | F | 896×1120 | anchor |
-| `probe_glasses` | F | 896×1120 | anchor |
-| `probe_appearance` | F | 896×1120 | anchor |
+| `probe_rebooking` | F | 960×1280 | anchor |
+| `probe_aged` | F | 960×1280 | anchor |
+| `probe_glasses` | F | 960×1280 | anchor |
+| `probe_appearance` | F | 960×1280 | anchor |
+| `probe_low_res` | F | 240×320, rendered at 960×1280 | anchor |
 
 The default shots are the frontal, both profiles, `icao_portrait`, `probe_rebooking` and `probe_aged`.
 
-- 4:5 is the aspect of the ANSI/NIST-ITL level-30 mugshot (at least 480×600). Level 40 and up need 3:4; see
+- 960×1280 meets the size and 3:4 aspect of the ANSI/NIST-ITL level-40 mugshot (at least 768×1024). The
+  export doesn't claim level 40 yet, since it also fixes composition and lighting. See
   [`image-resolution.md`](image-resolution.md).
-- The inter-eye distance is about 150 px in the mugshots and 186 px in the ICAO portrait (median), above the
-  ISO minimum of 90 px and the 120 px best practice.
+- Shots rendered before this size (896×1120, 4:5) keep their size when rendered again.
+- The inter-eye distance was about 150 px in the 896×1120 mugshots and 186 px in the ICAO portrait (median),
+  above the ISO minimum of 90 px and the 120 px best practice. At 960×1280 it should be about 160 px.
 - 7:9 matches a 35×45 mm passport photo.
 - A *left* profile shows the subject's left side, so they face the *left* edge of the image.
 
@@ -274,12 +277,19 @@ The **probes** are mated search images for ABIS testing: the same person with re
 | `probe_aged` | 15 years later, aged for the age reached (see below) |
 | `probe_glasses` | Glasses, window light, different clothing |
 | `probe_appearance` | Beard grown or shaved (men), different hairstyle (women) |
+| `probe_low_res` | A phone snapshot in a dim room, scaled down to 240×320 |
 
 Every probe also gets its own slight **head angle and expression** (`FacePrompts.variation/2`), since it's a
 different photo from the reference: turned 4–19° to either side, chin level, raised or lowered, sometimes
 leaning towards a shoulder, one of nine expressions (slight or broad smile, frown, raised eyebrows, squint,
 mid-sentence…) and now and then a gaze past the camera. It's fixed per person and shot, so it reproduces. The
 mugshots keep their standard poses and the ICAO portrait stays frontal and neutral.
+
+`probe_low_res` is for the search images an ABIS really gets, which are often far worse than the enrolment. It's
+rendered at mugshot size, then scaled down 4× (Lanczos) to 240×320, for an inter-eye distance of about 40 px,
+in the 30–60 px range of real search images. Rendering small directly would give a clean face at any size, so
+the resolution comes from the scaling and only the scene from the prompt. It isn't a default shot. See
+[`image-resolution.md`](image-resolution.md).
 
 The mugshots are one booking session, so scars look as on the anchor. The ICAO portrait and the probes are
 taken at other times: their prompts say the scar has **healed** to a faint line in the same place.
@@ -362,7 +372,7 @@ target state.**
 The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
 colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v7`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v8`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
@@ -373,6 +383,7 @@ Every run records `FacePrompts.version/0` (currently `faces-v7`). Bump it whenev
 | v5 | Each probe gets its own slight head angle, expression and gaze. |
 | v6 | Probe outfits follow the person's sex and change colour. |
 | v7 | The aged probe ages for the age reached, capped with "must look N, no older". |
+| v8 | Mugshots and probes render at 960×1280 (3:4). New low-resolution probe. |
 
 ## Friction ridges
 

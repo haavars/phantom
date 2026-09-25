@@ -31,7 +31,7 @@ defmodule Phantom.Biometrics.ShotsTest do
   end
 
   test "describes shots across modalities" do
-    assert %{modality: :face, code: "L", group: "face", size: {896, 1120}} =
+    assert %{modality: :face, code: "L", group: "face", size: {960, 1280}} =
              Shots.spec("mugshot_left_profile")
 
     assert %{modality: :ridge, kind: "finger", numeric_code: 7, code: "7", capture: 1} =

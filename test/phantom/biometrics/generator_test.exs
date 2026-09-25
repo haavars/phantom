@@ -62,7 +62,7 @@ defmodule Phantom.Biometrics.GeneratorTest do
 
     # Anchor first, then the conditioned shots, for each subject.
     for _subject <- 1..2 do
-      assert_received {:render, %{"width" => "896", "height" => "1120", "steps" => "20"}, []}
+      assert_received {:render, %{"width" => "960", "height" => "1280", "steps" => "20"}, []}
       assert_received {:render, %{"prompt" => profile}, [@anchor_png]}
       assert profile =~ "left profile"
       assert_received {:render, %{"height" => "1152"}, [@anchor_png]}
@@ -160,6 +160,53 @@ defmodule Phantom.Biometrics.GeneratorTest do
       first = image(upfront, "subject_001", shot)
       assert {later.seed, later.prompt, later.width} == {first.seed, first.prompt, first.width}
     end
+  end
+
+  test "renders the low-resolution probe at mugshot size and stores it scaled down" do
+    test_pid = self()
+
+    # A real RGBA PNG of the requested size, as the face model returns.
+    stub_qwen(
+      generate: fn conn ->
+        conn =
+          Plug.Parsers.call(
+            conn,
+            Plug.Parsers.init(parsers: [Plug.Parsers.MULTIPART], length: 20_000_000)
+          )
+
+        %{"width" => width, "height" => height} = conn.params
+        send(test_pid, {:render, conn.params})
+        {width, height} = {String.to_integer(width), String.to_integer(height)}
+
+        {:ok, vips} =
+          Vix.Vips.Image.new_from_binary(
+            :binary.copy(<<120, 130, 140, 255>>, width * height),
+            width,
+            height,
+            4,
+            :VIPS_FORMAT_UCHAR
+          )
+
+        {:ok, png} = Vix.Vips.Image.write_to_buffer(vips, ".png")
+
+        conn
+        |> Plug.Conn.put_resp_header("x-seed", conn.params["seed"])
+        |> Plug.Conn.put_resp_content_type("image/png")
+        |> Plug.Conn.send_resp(200, png)
+      end
+    )
+
+    run = generate(%{run: unique_run_name("low-res"), subjects: 1, shots: ["probe_low_res"]})
+
+    assert_received {:render, %{"width" => "960", "height" => "1280"}}
+    assert_received {:render, %{"width" => "960", "height" => "1280", "prompt" => prompt}}
+    assert prompt =~ "phone camera"
+
+    probe = image(run, "subject_001", "probe_low_res")
+    assert %{status: :ok, width: 240, height: 320} = probe
+    {:ok, png} = Storage.read(probe.storage_key)
+    {:ok, stored} = Vix.Vips.Image.new_from_buffer(png)
+    assert {Vix.Vips.Image.width(stored), Vix.Vips.Image.height(stored)} == {240, 320}
   end
 
   test "gives every subject the run's traits" do

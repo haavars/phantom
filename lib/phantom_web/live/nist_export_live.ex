@@ -26,6 +26,7 @@ defmodule PhantomWeb.NistExportLive do
     "probe_appearance" => "A different look: hair, facial hair or weight",
     "probe_rebooking" => "Booked again a year later, other light and clothes",
     "probe_glasses" => "A casual photo wearing glasses",
+    "probe_low_res" => "A small snapshot, about 40 px between the eyes",
     "icao_portrait" => "A passport-style portrait"
   }
 

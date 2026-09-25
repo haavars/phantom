@@ -7,6 +7,7 @@ defmodule Phantom.Biometrics.Generator.Faces do
 
   alias Phantom.Biometrics.{FacePrompts, Generator, Storage}
   alias Phantom.Services.Qwen
+  alias Vix.Vips.{Image, Operation}
 
   @doc """
   Renders the face shot `spec` of `subject`. Returns `{fields, result}`: the
@@ -15,6 +16,9 @@ defmodule Phantom.Biometrics.Generator.Faces do
 
   A shot rendered before (`previous`, its image record) is rendered again
   from its stored prompt, seed and size rather than today's templates.
+
+  A shot with a `:downscale` above 1 (the low-resolution probe) is rendered
+  that many times larger than its size, then scaled down to it.
   """
   def render(spec, run, subject, attributes, anchor, previous) do
     {width, height} = inputs(previous, :size) || spec.size
@@ -35,16 +39,30 @@ defmodule Phantom.Biometrics.Generator.Faces do
       with {:ok, references} <- references(spec, anchor),
            {:ok, %{image: png}} <-
              Qwen.render(fields.prompt,
-               width: width,
-               height: height,
+               width: width * spec.downscale,
+               height: height * spec.downscale,
                steps: run.steps,
                seed: fields.seed,
                images: references
-             ) do
+             ),
+           {:ok, png} <- downscale(png, spec.downscale) do
         {:ok, png, %{}}
       end
 
     {fields, result}
+  end
+
+  # By `factor`, with libvips' default Lanczos kernel.
+  defp downscale(png, 1), do: {:ok, png}
+
+  defp downscale(png, factor) do
+    with {:ok, image} <- Image.new_from_buffer(png),
+         {:ok, small} <- Operation.resize(image, 1 / factor),
+         {:ok, data} <- Image.write_to_buffer(small, ".png") do
+      {:ok, data}
+    else
+      {:error, reason} -> {:error, "couldn't scale the image down: #{inspect(reason)}"}
+    end
   end
 
   defp inputs(%{width: width, height: height}, :size)

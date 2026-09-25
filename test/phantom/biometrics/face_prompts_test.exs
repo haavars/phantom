@@ -7,14 +7,25 @@ defmodule Phantom.Biometrics.FacePromptsTest do
     attrs = FaceAttributes.sample(99)
 
     for shot <- FacePrompts.shots() do
-      assert %{pos: pos, size: {width, height}} = FacePrompts.spec(shot)
+      assert %{pos: pos, size: {width, height}, downscale: downscale} = FacePrompts.spec(shot)
       assert pos in ~w(F L R A)
-      assert rem(width, 32) == 0 and rem(height, 32) == 0
+      # The size it's rendered at.
+      assert rem(width * downscale, 32) == 0 and rem(height * downscale, 32) == 0
 
       prompt = FacePrompts.prompt(shot, attrs)
       refute prompt =~ ~r/[{}]|#\{/
       refute String.ends_with?(prompt, "\n")
     end
+  end
+
+  test "the low-resolution probe is a mugshot-sized render scaled down to about 40 px IED" do
+    %{size: {width, height}, downscale: downscale} = FacePrompts.spec("probe_low_res")
+    mugshot = FacePrompts.spec("mugshot_frontal")
+
+    assert {width * downscale, height * downscale} == mugshot.size
+    assert mugshot.downscale == 1
+    # The mugshots' inter-eye distance is about 160 px.
+    assert div(160, downscale) in 30..60
   end
 
   test "only the anchor shot is generated from text alone" do
@@ -24,7 +35,9 @@ defmodule Phantom.Biometrics.FacePromptsTest do
   end
 
   test "scars look as on the anchor in the mugshots and have healed in every later shot" do
-    later = ~w(icao_portrait probe_rebooking probe_aged probe_glasses probe_appearance)
+    later =
+      ~w(icao_portrait probe_rebooking probe_aged probe_glasses probe_appearance probe_low_res)
+
     session = FacePrompts.shots() -- later
 
     for mark <- Enum.filter(FaceAttributes.marks(), &(&1 =~ "scar")) do
@@ -54,7 +67,7 @@ defmodule Phantom.Biometrics.FacePromptsTest do
   end
 
   test "probes vary head angle and expression slightly, the mugshots and ICAO portrait don't" do
-    probes = ~w(probe_rebooking probe_aged probe_glasses probe_appearance)
+    probes = ~w(probe_rebooking probe_aged probe_glasses probe_appearance probe_low_res)
     attrs = FaceAttributes.sample(7)
 
     for shot <- probes do
@@ -97,7 +110,8 @@ defmodule Phantom.Biometrics.FacePromptsTest do
       "probe_rebooking" => "now wears ",
       "probe_aged" => "now wears ",
       "probe_glasses" => "now wears ",
-      "probe_appearance" => "now wears "
+      "probe_appearance" => "now wears ",
+      "probe_low_res" => "now wears "
     }
 
     for seed <- 1..80, {shot, lead} <- changes do

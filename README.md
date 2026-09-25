@@ -39,7 +39,7 @@ QWEN_AUTOSTART=false QWEN_SERVICE_URL=http://your-host:8000 mix phx.server
 Each run generates synthetic subjects, fictional people:
 
 - **Faces:** mugshots, ICAO portraits and mated probe images (re-booked, aged, with glasses, changed
-  appearance, each with its own slight pose and expression), from Qwen-Image-2.1.
+  appearance, low resolution, each with its own slight pose and expression), from Qwen-Image-2.1.
 - **Friction ridges:** rolled fingerprints, slaps, full and writer's palms, and an FD-249 style tenprint card,
   from the ridge generator in [`python_biometrics/`](python_biometrics/README.md): patterns on the CPU, rendered
   as realistic ink prints by a diffusion model (or procedurally, as a fast CPU draft) and verified against their

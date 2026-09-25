@@ -117,7 +117,8 @@ defmodule Phantom.Biometrics.Shots do
     "probe_rebooking" => "Re-booking",
     "probe_aged" => "Aged +15",
     "probe_glasses" => "Glasses",
-    "probe_appearance" => "Appearance"
+    "probe_appearance" => "Appearance",
+    "probe_low_res" => "Low resolution"
   }
 
   @groups %{
@@ -141,7 +142,8 @@ defmodule Phantom.Biometrics.Shots do
   @doc """
   The spec for a shot id, or `nil`: `:id`, `:modality` (`:face` / `:ridge`),
   `:group`, `:code` (display code: face pose F/L/R/A, FGP or PLP number),
-  `:size`, `:capture` (0-based), `:label`, and for ridge shots `:kind`.
+  `:size`, `:capture` (0-based), `:label`, for face shots `:downscale` (see
+  `FacePrompts.spec/1`) and for ridge shots `:kind`.
   """
   def spec(id) when is_binary(id) do
     case FacePrompts.spec(id) do
@@ -152,6 +154,7 @@ defmodule Phantom.Biometrics.Shots do
           group: "face",
           code: face.pos,
           size: face.size,
+          downscale: face.downscale,
           capture: 0,
           label: Map.get(@face_labels, id, id),
           anchor?: face.anchor?

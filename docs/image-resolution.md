@@ -59,10 +59,13 @@ images:
 1. **Render mugshots at 3:4, 960 × 1280.** They then meet SAP 40's size and aspect, and keep an IED around
    160 px. That's 23% more pixels, so somewhat longer renders; 1152 × 1536 is the ceiling before exceeding the
    model's native area. Claiming SAP 40 in an export still needs the composition and lighting rules checked.
+   *Done 2026-09-25:* mugshots and probes now render at 960 × 1280; earlier shots keep their size when
+   re-rendered.
 2. **Don't aim for SAP 50/51.** 8–15 MP from a diffusion model is invented detail at great cost, and matchers
    don't benefit.
 3. **Consider low-resolution probes.** Real search images are often worse than enrolment. An optional downscaled
    probe (IED 30–60 px) would test an ABIS more realistically than a studio-quality one.
+   *Done 2026-09-25:* `probe_low_res`, rendered at 960 × 1280 and scaled down to 240 × 320 (IED about 40 px).
 4. **INTERPOL:** the NIST export writes SAP 20 (mugshots) and 0 (others), which INT-I rejects. INT-I needs faces
    that genuinely meet SAP 30 or 40 (see [nist-export-plan.md](nist-export-plan.md)).
 

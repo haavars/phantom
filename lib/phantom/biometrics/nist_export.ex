@@ -40,7 +40,8 @@ defmodule Phantom.Biometrics.NistExport do
 
   @enrol_faces ~w(mugshot_frontal mugshot_left_profile mugshot_right_profile
                   mugshot_three_quarter_left mugshot_three_quarter_right)
-  @search_faces ~w(probe_aged probe_appearance probe_rebooking probe_glasses icao_portrait)
+  @search_faces ~w(probe_aged probe_appearance probe_rebooking probe_glasses probe_low_res
+                   icao_portrait)
 
   # Degrees from full face, positive as the subject turns to their left.
   @pose_angles %{"mugshot_three_quarter_left" => -45, "mugshot_three_quarter_right" => 45}
