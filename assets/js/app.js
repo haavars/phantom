@@ -37,6 +37,19 @@ topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
+// Copy an input's value: phx-click={JS.dispatch("phantom:copy", to: "#input")}. The
+// button with data-copy-for="<input id>" gets data-copied for a moment.
+window.addEventListener("phantom:copy", ({target}) => {
+  target.select()
+  navigator.clipboard.writeText(target.value).then(() => {
+    const button = document.querySelector(`[data-copy-for="${target.id}"]`)
+    if (!button) return
+    button.setAttribute("data-copied", "")
+    setTimeout(() => button.removeAttribute("data-copied"), 1500)
+  })
+})
+window.addEventListener("phantom:select", ({target}) => target.select())
+
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 

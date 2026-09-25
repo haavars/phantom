@@ -10,7 +10,8 @@ defmodule PhantomWeb.BiometricsComponents do
 
   import PhantomWeb.CoreComponents, only: [icon: 1]
 
-  alias Phantom.Biometrics.{FacePrompts, Shots}
+  alias Phantom.Biometrics.{FacePrompts, Share, Shots}
+  alias Phoenix.LiveView.JS
 
   @face_descriptions %{
     "mugshot_frontal" => "Anchor. Generated from the text description.",
@@ -111,6 +112,122 @@ defmodule PhantomWeb.BiometricsComponents do
   def format_duration(ms), do: "#{Float.round(ms / 1000, 1)} s"
 
   def anchor?(shot), do: shot == FacePrompts.anchor_shot()
+
+  attr :shares, :list, required: true
+
+  @doc """
+  A subject's shared links (`Phantom.Biometrics.Shares`), newest first: each
+  upload's progress, then its link with a copy button, when it expires, and
+  **New link** while the file is still in the bucket. The LiveView handles
+  `renew-share` (`phx-value-id`).
+  """
+  def share_links(assigns) do
+    ~H"""
+    <section
+      id="share-links"
+      class="space-y-2 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
+    >
+      <div>
+        <h2 class="text-sm font-semibold">Shared links</h2>
+        <p class="text-xs text-base-content/60">
+          Anyone with a link can download that file, without Tailscale, until the link expires.
+        </p>
+      </div>
+      <ul class="divide-y divide-base-300">
+        <li :for={share <- @shares} id={"share-#{share.id}"} class="space-y-1.5 py-2.5 last:pb-0">
+          <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <span class="min-w-0 truncate font-mono text-xs font-medium">{share.filename}</span>
+            <span class="shrink-0 text-[11px] tabular-nums text-base-content/50">
+              {if share.byte_size, do: format_bytes(share.byte_size) <> " · "}{format_time(
+                share.inserted_at
+              )}
+            </span>
+          </div>
+          <.share_state share={share} />
+        </li>
+      </ul>
+    </section>
+    """
+  end
+
+  attr :share, Share, required: true
+
+  defp share_state(%{share: %Share{status: status}} = assigns)
+       when status in [:queued, :uploading] do
+    ~H"""
+    <p class="flex items-center gap-1.5 text-xs text-base-content/65">
+      <.spinner :if={@share.status == :uploading} class="size-3 text-primary" />
+      <.icon :if={@share.status == :queued} name="hero-clock-micro" class="size-3.5" />
+      {if @share.status == :uploading, do: "Uploading…", else: "Waiting to upload"}
+      <span :if={@share.error} class="text-warning">· retrying: {@share.error}</span>
+    </p>
+    """
+  end
+
+  defp share_state(%{share: %Share{status: :failed}} = assigns) do
+    ~H"""
+    <p class="flex gap-1.5 text-xs text-error">
+      <.icon name="hero-exclamation-circle-micro" class="mt-px size-3.5 shrink-0" />
+      Upload failed: {@share.error}
+    </p>
+    """
+  end
+
+  defp share_state(assigns) do
+    assigns =
+      assigns
+      |> assign(:stored?, Share.stored?(assigns.share))
+      |> assign(:valid?, Share.link_valid?(assigns.share))
+
+    ~H"""
+    <div :if={@valid?} class="flex gap-1.5">
+      <input
+        type="text"
+        id={"share-url-#{@share.id}"}
+        value={@share.url}
+        readonly
+        aria-label={"Link to #{@share.filename}"}
+        class="min-w-0 flex-1 truncate rounded-lg border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-[11px] text-base-content/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
+        phx-click={JS.dispatch("phantom:select")}
+      />
+      <button
+        type="button"
+        id={"share-copy-#{@share.id}"}
+        data-copy-for={"share-url-#{@share.id}"}
+        phx-click={JS.dispatch("phantom:copy", to: "#share-url-#{@share.id}")}
+        class="group inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-content shadow-sm transition hover:brightness-110 active:scale-[0.97]"
+      >
+        <.icon name="hero-clipboard-document-mini" class="size-3.5 group-data-copied:hidden" />
+        <.icon name="hero-check-mini" class="hidden size-3.5 group-data-copied:inline-block" />
+        <span class="group-data-copied:hidden">Copy</span>
+        <span class="hidden group-data-copied:inline">Copied</span>
+      </button>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-base-content/55">
+      <span :if={@valid?}>
+        Link works until {format_date(@share.link_expires_at)} · file deleted {format_date(
+          @share.expires_at
+        )}
+      </span>
+      <span :if={@stored? and not @valid?} class="text-warning">
+        Link expired · file deleted {format_date(@share.expires_at)}
+      </span>
+      <span :if={not @stored?}>Deleted from the bucket {format_date(@share.expires_at)}</span>
+      <button
+        :if={@stored?}
+        type="button"
+        id={"share-renew-#{@share.id}"}
+        phx-click="renew-share"
+        phx-value-id={@share.id}
+        class="inline-flex items-center gap-1 font-medium text-primary transition hover:underline"
+      >
+        <.icon name="hero-arrow-path-micro" class="size-3" /> New link
+      </button>
+    </div>
+    """
+  end
+
+  defp format_date(%DateTime{} = time), do: Calendar.strftime(time, "%-d %b %H:%M UTC")
 
   attr :class, :string, default: "size-4"
 

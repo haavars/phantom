@@ -5,7 +5,8 @@ defmodule PhantomWeb.NistExportLive do
   holds (prints and face, prints only, face only), which face probes to add
   as search transactions, and PNG or WSQ for the prints. The page lists the
   files and records the download will have; the download itself is
-  `PhantomWeb.DownloadController.nist/2`.
+  `PhantomWeb.DownloadController.nist/2`. With a bucket configured, the same
+  export can be shared as a link (`Phantom.Biometrics.Shares`).
   """
 
   use PhantomWeb, :live_view
@@ -35,8 +36,13 @@ defmodule PhantomWeb.NistExportLive do
   def mount(%{"run" => run, "subject" => name}, _session, socket) do
     case Biometrics.get_subject(run, name) do
       {:ok, subject} ->
+        sharing? = Biometrics.sharing_enabled?()
+        if sharing? and connected?(socket), do: Biometrics.subscribe_shares(subject)
+
         {:ok,
          socket
+         |> assign(:sharing?, sharing?)
+         |> assign(:shares, if(sharing?, do: Biometrics.list_shares(subject), else: []))
          |> assign(:page_title, "NIST export · #{Gallery.code(subject.seed)}")
          |> assign(:subject, subject)
          |> assign(:run, subject.run)
@@ -58,6 +64,43 @@ defmodule PhantomWeb.NistExportLive do
   @impl true
   def handle_event("change", %{"nist" => params}, socket) do
     {:noreply, assign_options(socket, params)}
+  end
+
+  def handle_event("share", _params, socket) do
+    %{options: options, subject: subject} = socket.assigns
+
+    params = %{
+      "content" => options.content,
+      "compression" => options.compression,
+      "search" => options.search
+    }
+
+    case Biometrics.share_subject(subject, "nist", params) do
+      {:ok, _share} ->
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Couldn't share this export: #{inspect(reason)}.")}
+    end
+  end
+
+  def handle_event("renew-share", %{"id" => id}, socket) do
+    case Biometrics.renew_share(id) do
+      {:ok, _share} -> {:noreply, socket}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "That file has been deleted.")}
+    end
+  end
+
+  @impl true
+  def handle_info({:share_updated, share}, socket) do
+    shares = socket.assigns.shares
+
+    shares =
+      if Enum.any?(shares, &(&1.id == share.id)),
+        do: Enum.map(shares, &if(&1.id == share.id, do: share, else: &1)),
+        else: [share | shares]
+
+    {:noreply, assign(socket, :shares, shares)}
   end
 
   # The chosen options, and the export they give (or why there's none).
@@ -285,58 +328,70 @@ defmodule PhantomWeb.NistExportLive do
             </section>
           </.form>
 
-          <aside
-            id="nist-files"
-            class="space-y-3 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm lg:sticky lg:top-6"
-          >
-            <h2 class="text-sm font-semibold">Files</h2>
-            <%= if @export do %>
-              <ul class="space-y-2">
-                <li
-                  :for={transaction <- @export.transactions}
-                  id={"file-#{transaction.name}"}
-                  class="rounded-lg bg-base-200/60 px-3 py-2"
+          <div class="space-y-4 lg:sticky lg:top-6">
+            <aside
+              id="nist-files"
+              class="space-y-3 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
+            >
+              <h2 class="text-sm font-semibold">Files</h2>
+              <%= if @export do %>
+                <ul class="space-y-2">
+                  <li
+                    :for={transaction <- @export.transactions}
+                    id={"file-#{transaction.name}"}
+                    class="rounded-lg bg-base-200/60 px-3 py-2"
+                  >
+                    <div class="flex items-baseline justify-between gap-2">
+                      <span class="truncate font-mono text-xs font-medium">{transaction.filename}</span>
+                      <span class="shrink-0 text-[11px] tabular-nums text-base-content/50">
+                        ≈ {format_bytes(estimate(transaction, @export.compression))}
+                      </span>
+                    </div>
+                    <p class="mt-0.5 text-xs text-base-content/65">
+                      {if transaction.kind == :enrol,
+                        do: "Enrolment",
+                        else: "Search: #{Shots.label(transaction.probe)}"}
+                    </p>
+                    <p class="mt-1 text-[11px] text-base-content/50">
+                      Type-1, Type-2<span :for={{type, n} <- record_counts(transaction)}>, {n} × Type-{type} {record_name(
+                        type
+                      )}</span>
+                    </p>
+                  </li>
+                </ul>
+                <.link
+                  href={download_path(@run, @subject, @options)}
+                  id="nist-download"
+                  class="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-content shadow-sm transition hover:brightness-110"
                 >
-                  <div class="flex items-baseline justify-between gap-2">
-                    <span class="truncate font-mono text-xs font-medium">{transaction.filename}</span>
-                    <span class="shrink-0 text-[11px] tabular-nums text-base-content/50">
-                      ≈ {format_bytes(estimate(transaction, @export.compression))}
-                    </span>
-                  </div>
-                  <p class="mt-0.5 text-xs text-base-content/65">
-                    {if transaction.kind == :enrol,
-                      do: "Enrolment",
-                      else: "Search: #{Shots.label(transaction.probe)}"}
-                  </p>
-                  <p class="mt-1 text-[11px] text-base-content/50">
-                    Type-1, Type-2<span :for={{type, n} <- record_counts(transaction)}>, {n} × Type-{type} {record_name(
-                      type
-                    )}</span>
-                  </p>
-                </li>
-              </ul>
-              <.link
-                href={download_path(@run, @subject, @options)}
-                id="nist-download"
-                class="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-content shadow-sm transition hover:brightness-110"
-              >
-                <.icon name="hero-arrow-down-tray-mini" class="size-4" />
-                Download {if length(@export.transactions) == 1, do: ".an2", else: "ZIP"}
-              </.link>
-              <p class="text-[11px] leading-relaxed text-base-content/50">
-                Every file is marked as synthetic in its Type-2 record, with the subject code in 2.003. {if length(
-                                                                                                              @export.transactions
-                                                                                                            ) >
-                                                                                                              1,
-                                                                                                            do:
-                                                                                                              "The ZIP adds a README."}
-              </p>
-            <% else %>
-              <p id="nothing" class="text-sm text-base-content/60">
-                Nothing to export with these choices: this person has no images of that kind yet.
-              </p>
-            <% end %>
-          </aside>
+                  <.icon name="hero-arrow-down-tray-mini" class="size-4" />
+                  Download {if length(@export.transactions) == 1, do: ".an2", else: "ZIP"}
+                </.link>
+                <button
+                  :if={@sharing?}
+                  type="button"
+                  id="nist-share"
+                  phx-click="share"
+                  class="flex w-full items-center justify-center gap-1.5 rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-sm font-medium transition hover:bg-base-200 active:scale-[0.98]"
+                >
+                  <.icon name="hero-link-mini" class="size-4" /> Share as a link
+                </button>
+                <p class="text-[11px] leading-relaxed text-base-content/50">
+                  Every file is marked as synthetic in its Type-2 record, with the subject code in 2.003. {if length(
+                                                                                                                @export.transactions
+                                                                                                              ) >
+                                                                                                                1,
+                                                                                                              do:
+                                                                                                                "The ZIP adds a README."}
+                </p>
+              <% else %>
+                <p id="nothing" class="text-sm text-base-content/60">
+                  Nothing to export with these choices: this person has no images of that kind yet.
+                </p>
+              <% end %>
+            </aside>
+            <.share_links :if={@shares != []} shares={@shares} />
+          </div>
         </div>
       </div>
     </Layouts.app>

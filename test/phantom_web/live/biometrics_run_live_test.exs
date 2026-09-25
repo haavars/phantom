@@ -94,6 +94,21 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#download-faces")
   end
 
+  test "shares a download as a link and shows it once uploaded", %{conn: conn, run: run} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001")
+    refute has_element?(view, "#share-links")
+
+    view |> element("#share-faces") |> render_click()
+    assert has_element?(view, "#share-links", "Waiting to upload")
+
+    Req.Test.stub(Phantom.S3, &Plug.Conn.send_resp(&1, 200, ""))
+    Oban.drain_queue(queue: :transfers, with_safety: false)
+
+    assert has_element?(view, "#share-links input[value*='X-Amz-Signature=']")
+    assert has_element?(view, "#share-links", "Link works until")
+    assert has_element?(view, "#share-links button", "New link")
+  end
+
   test "downloads the shot in the detail view", %{conn: conn, run: run} do
     {:ok, view, _html} =
       live(conn, ~p"/biometrics/#{run}?#{[subject: "subject_001", shot: "mugshot_frontal"]}")

@@ -18,6 +18,20 @@ defmodule PhantomWeb.NistExportLiveTest do
     %{run: run, code: Gallery.code(subject.seed)}
   end
 
+  test "shares the chosen export as a link", %{conn: conn, run: run, code: code} do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001/nist")
+
+    view |> form("#nist-form", nist: %{content: "prints"}) |> render_change()
+    view |> element("#nist-share") |> render_click()
+
+    assert has_element?(view, "#share-links", "#{code}_enrol.an2")
+    assert has_element?(view, "#share-links", "Waiting to upload")
+    assert_enqueued(worker: Phantom.Biometrics.Workers.UploadShare)
+
+    {:ok, subject} = Biometrics.get_subject(run, "subject_001")
+    assert [%{options: %{"content" => "prints"}}] = Biometrics.list_shares(subject)
+  end
+
   test "shows what the enrolment holds and downloads it", %{conn: conn, run: run, code: code} do
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001/nist")
 

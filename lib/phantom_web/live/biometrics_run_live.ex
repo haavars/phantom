@@ -6,7 +6,8 @@ defmodule PhantomWeb.BiometricsRunLive do
   A run that isn't rendering can be resumed when a subject is missing an
   image (not rendered, failed, or its file deleted), and can get more shots.
   Each subject downloads as a ZIP (`PhantomWeb.DownloadController`), and each
-  image on its own from the detail view.
+  image on its own from the detail view. With a bucket configured, the
+  subject's page can also share a download as a link (`Phantom.Biometrics.Shares`).
 
   `/biometrics/:run/:subject` shows one subject (one synthetic identity) on its
   own, with every image of it; the detail view there is `?shot=...`.
@@ -36,6 +37,7 @@ defmodule PhantomWeb.BiometricsRunLive do
         |> assign(:adding?, false)
         |> assign(:add_form, to_form(%{}, as: :add))
         |> assign(:add_error, nil)
+        |> assign_shares(focused)
         |> assign_run(run)
         |> stream_configure(:subjects, dom_id: &"subjects-#{&1.name}")
         |> stream(:subjects, in_focus(run.subjects, focus))
@@ -54,6 +56,19 @@ defmodule PhantomWeb.BiometricsRunLive do
          |> put_flash(:error, "Subject #{focus} not found in #{name}.")
          |> push_navigate(to: ~p"/biometrics/#{name}")}
     end
+  end
+
+  # Shared links are only on a subject's own page.
+  defp assign_shares(socket, nil), do: assign(socket, sharing?: false, shares: [])
+
+  defp assign_shares(socket, subject) do
+    sharing? = Biometrics.sharing_enabled?()
+    if sharing? and connected?(socket), do: Biometrics.subscribe_shares(subject)
+
+    assign(socket,
+      sharing?: sharing?,
+      shares: if(sharing?, do: Biometrics.list_shares(subject), else: [])
+    )
   end
 
   # The run without its subjects (they're streamed), where it is if it's
@@ -136,6 +151,22 @@ defmodule PhantomWeb.BiometricsRunLive do
     end
   end
 
+  def handle_event("share", %{"include" => include}, socket) do
+    with {:ok, subject} <- Biometrics.get_subject(socket.assigns.run.name, socket.assigns.focus),
+         {:ok, _share} <- Biometrics.share_subject(subject, "zip", %{"include" => include}) do
+      {:noreply, socket}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, share_error(reason))}
+    end
+  end
+
+  def handle_event("renew-share", %{"id" => id}, socket) do
+    case Biometrics.renew_share(id) do
+      {:ok, _share} -> {:noreply, socket}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "That file has been deleted.")}
+    end
+  end
+
   def handle_event("cancel", _params, socket) do
     {:ok, run} = Biometrics.cancel_run(socket.assigns.run)
     {:noreply, assign_run(socket, run)}
@@ -203,6 +234,17 @@ defmodule PhantomWeb.BiometricsRunLive do
     {:noreply, socket}
   end
 
+  def handle_info({:share_updated, share}, socket) do
+    shares = socket.assigns.shares
+
+    shares =
+      if Enum.any?(shares, &(&1.id == share.id)),
+        do: Enum.map(shares, &if(&1.id == share.id, do: share, else: &1)),
+        else: [share | shares]
+
+    {:noreply, assign(socket, :shares, shares)}
+  end
+
   # Another run's events.
   def handle_info({event, _record}, socket) when event in [:run_updated, :subject_updated],
     do: {:noreply, socket}
@@ -218,6 +260,10 @@ defmodule PhantomWeb.BiometricsRunLive do
         socket
     end
   end
+
+  defp share_error(:empty), do: "Nothing to share: this person has no images of that kind yet."
+  defp share_error(:not_configured), do: "Sharing needs an S3 bucket: see docs/s3-export-plan.md."
+  defp share_error(_reason), do: "Couldn't share that download."
 
   defp flash_outcome(socket, %Run{status: :finished}),
     do: put_flash(socket, :info, "Run finished.")
@@ -301,9 +347,10 @@ defmodule PhantomWeb.BiometricsRunLive do
 
   attr :run, :map, required: true
   attr :subject, :map, required: true
+  attr :sharing?, :boolean, default: false
 
   # Download this person as a ZIP: everything, faces only, or prints only,
-  # with what each holds.
+  # with what each holds, and with a bucket configured, share one as a link.
   defp download_menu(assigns) do
     summary = Biometrics.download_summary(assigns.subject)
 
@@ -347,19 +394,36 @@ defmodule PhantomWeb.BiometricsRunLive do
         phx-key="Escape"
       >
         <%= for {include, title, hint, %{files: files, bytes: bytes}} <- @options, files > 0 do %>
-          <a
-            id={"download-#{include}"}
-            href={~p"/biometrics/#{@run.name}/#{@subject.name}/download?#{[include: include]}"}
-            class="flex items-start justify-between gap-3 rounded-lg px-3 py-2 transition hover:bg-base-200"
-          >
-            <span class="min-w-0">
-              <span class="block text-sm font-medium">{title}</span>
-              <span class="block text-xs text-base-content/60">{hint}</span>
-            </span>
-            <span class="shrink-0 pt-0.5 text-right text-xs tabular-nums text-base-content/55">
-              {files} {if files == 1, do: "image", else: "images"}<br />{format_bytes(bytes)}
-            </span>
-          </a>
+          <div class="flex items-stretch gap-1">
+            <a
+              id={"download-#{include}"}
+              href={~p"/biometrics/#{@run.name}/#{@subject.name}/download?#{[include: include]}"}
+              class="flex min-w-0 flex-1 items-start justify-between gap-3 rounded-lg px-3 py-2 transition hover:bg-base-200"
+            >
+              <span class="min-w-0">
+                <span class="block text-sm font-medium">{title}</span>
+                <span class="block text-xs text-base-content/60">{hint}</span>
+              </span>
+              <span class="shrink-0 pt-0.5 text-right text-xs tabular-nums text-base-content/55">
+                {files} {if files == 1, do: "image", else: "images"}<br />{format_bytes(bytes)}
+              </span>
+            </a>
+            <button
+              :if={@sharing?}
+              type="button"
+              id={"share-#{include}"}
+              phx-click={
+                JS.push("share", value: %{include: include})
+                |> JS.hide(to: "#download-menu")
+                |> JS.set_attribute({"aria-expanded", "false"}, to: "#download-toggle")
+              }
+              title={"Share #{String.downcase(title)} as a link"}
+              aria-label={"Share #{String.downcase(title)} as a link"}
+              class="flex w-9 shrink-0 items-center justify-center rounded-lg text-base-content/50 transition hover:bg-base-200 hover:text-primary"
+            >
+              <.icon name="hero-link-mini" class="size-4" />
+            </button>
+          </div>
         <% end %>
         <.link
           navigate={~p"/biometrics/#{@run.name}/#{@subject.name}/nist"}
@@ -383,7 +447,10 @@ defmodule PhantomWeb.BiometricsRunLive do
         </p>
         <p class="mx-1 mt-1 border-t border-base-300 px-2 pt-2 pb-1 text-[11px] text-base-content/50">
           The ZIPs hold PNG images, a subject.json manifest (seeds, prompts, SHA-256) and a
-          README.
+          README.<span :if={@sharing?}>
+            <.icon name="hero-link-micro" class="size-3 align-[-2px]" />
+            uploads one to share as a link.
+          </span>
         </p>
       </div>
     </div>
@@ -392,6 +459,7 @@ defmodule PhantomWeb.BiometricsRunLive do
 
   attr :run, :map, required: true
   attr :subject, :map, required: true
+  attr :sharing?, :boolean, default: false
 
   # The focused page's header: who this synthetic person is, and where they came from.
   defp identity_header(assigns) do
@@ -454,7 +522,7 @@ defmodule PhantomWeb.BiometricsRunLive do
               <dd class="font-mono">{@subject.seed}</dd>
             </div>
           </dl>
-          <.download_menu :if={@images > 0} run={@run} subject={@subject} />
+          <.download_menu :if={@images > 0} run={@run} subject={@subject} sharing?={@sharing?} />
         </div>
       </div>
     </div>
@@ -465,7 +533,8 @@ defmodule PhantomWeb.BiometricsRunLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} wide active={:runs}>
-      <.identity_header :if={@focused} run={@run} subject={@focused} />
+      <.identity_header :if={@focused} run={@run} subject={@focused} sharing?={@sharing?} />
+      <.share_links :if={@shares != []} shares={@shares} />
 
       <div :if={!@focused} class="flex flex-wrap items-end justify-between gap-4">
         <div class="min-w-0">
