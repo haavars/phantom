@@ -8,12 +8,18 @@ defmodule Phantom.Biometrics.Image do
   (`reference`). Friction-ridge shots keep a summary of their ground truth in
   `meta` (pattern classes, counts, verification scores) and the full ground
   truth (minutiae, singular points, detected minutiae) in `ground_truth`.
+
+  Ids are UUIDv7: they sort by creation time, like the old integer ids, but
+  are never reused, so an image URL (`/images/<id>`) can't show a picture a
+  browser cached for another image before a database reset.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
   alias Phantom.Biometrics.Subject
+
+  @primary_key {:id, Ecto.UUID, autogenerate: [version: 7, precision: :monotonic]}
 
   schema "images" do
     field :shot, :string
@@ -35,7 +41,7 @@ defmodule Phantom.Biometrics.Image do
     field :error, :string
 
     belongs_to :subject, Subject
-    belongs_to :reference, __MODULE__
+    belongs_to :reference, __MODULE__, type: Ecto.UUID
 
     timestamps(type: :utc_datetime_usec)
   end

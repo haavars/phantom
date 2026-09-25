@@ -1,7 +1,7 @@
 defmodule PhantomWeb.ImageController do
   @moduledoc """
   Serves a generated image's file (`?download=1` to save it) and its ground
-  truth, by image id. Files live in storage (`Phantom.Biometrics.Storage`),
+  truth, by image id (a UUIDv7). Files live in storage (`Phantom.Biometrics.Storage`),
   outside `priv/static`.
   """
 
@@ -10,7 +10,7 @@ defmodule PhantomWeb.ImageController do
   alias Phantom.Biometrics
 
   def show(conn, %{"id" => id} = params) do
-    with {:ok, image} <- fetch_image(id),
+    with {:ok, image} <- Biometrics.get_image(id),
          {:ok, path} <- Biometrics.image_path(image) do
       conn
       |> put_resp_content_type(image.content_type || "image/png", nil)
@@ -35,7 +35,7 @@ defmodule PhantomWeb.ImageController do
   end
 
   def ground_truth(conn, %{"id" => id}) do
-    case fetch_image(id) do
+    case Biometrics.get_image(id) do
       {:ok, %{ground_truth: %{} = truth} = image} ->
         conn
         |> put_resp_header(
@@ -46,13 +46,6 @@ defmodule PhantomWeb.ImageController do
 
       _ ->
         send_resp(conn, 404, "Not found")
-    end
-  end
-
-  defp fetch_image(id) do
-    case Integer.parse(id) do
-      {id, ""} -> Biometrics.get_image(id)
-      _ -> {:error, :not_found}
     end
   end
 end

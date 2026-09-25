@@ -47,6 +47,7 @@ defmodule PhantomWeb.ImageControllerTest do
     face = image(run, "mugshot_frontal")
 
     assert conn |> get(~p"/images/0") |> response(404)
+    assert conn |> get(~p"/images/#{Ecto.UUID.generate(version: 7)}") |> response(404)
     assert conn |> get("/images/not-an-id") |> response(404)
     assert conn |> get(~p"/images/#{face.id}/ground-truth") |> response(404)
 

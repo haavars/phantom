@@ -393,10 +393,13 @@ defmodule Phantom.Biometrics do
     end
   end
 
+  @doc "One image by id (a UUIDv7), or `{:error, :not_found}` for anything else."
   def get_image(id) do
-    case Repo.get(Image, id) do
-      nil -> {:error, :not_found}
-      image -> {:ok, image}
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Image{} = image <- Repo.get(Image, id) do
+      {:ok, image}
+    else
+      _ -> {:error, :not_found}
     end
   end
 
