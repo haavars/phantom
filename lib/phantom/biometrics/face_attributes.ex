@@ -204,17 +204,20 @@ defmodule Phantom.Biometrics.FaceAttributes do
   # another once hair, age and clothing are set aside. Without these the model
   # draws much the same features for everyone of a sex, age and ancestry. Mild
   # wording ("a hooked nose") barely moves it off that face, so they're strong.
+  # Except the big noses: "a very large fleshy nose" and "a very broad nose
+  # with a bulbous tip" came out as caricatures (Gérard Depardieu), so those
+  # two say the shape instead of the size.
   @features [
     nose: [
       "a noticeably long straight nose",
       "a very short upturned nose",
-      "a very broad nose with a bulbous tip",
+      "a broad nose with a rounded tip",
       "a very narrow pointed nose",
       "a very prominent hooked nose",
       "a nose with a clear bump on the bridge",
       "a very small snub nose",
       "a wide nose with a very flat bridge",
-      "a very large fleshy nose"
+      "a large nose with a high, narrow bridge"
     ],
     eyes: [
       "deeply set eyes",

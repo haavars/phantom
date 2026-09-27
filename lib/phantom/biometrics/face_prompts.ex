@@ -45,7 +45,7 @@ defmodule Phantom.Biometrics.FacePrompts do
 
   alias Phantom.Biometrics.FaceAttributes
 
-  @version "faces-v13"
+  @version "faces-v14"
 
   @mugshot {960, 1280}
   @icao {896, 1152}

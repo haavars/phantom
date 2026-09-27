@@ -30,7 +30,7 @@ You can drive it from IEx or from the web UI.
 - Friction ridges are rendered by diffusion and verified with NIST tools (NFIQ 2, `mindtct`, `bozorth3`). See
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
-  clothing by sex, the low-resolution probe, facial features; now `faces-v13`) haven't been checked on a large set of real renders yet.
+  clothing by sex, the low-resolution probe, facial features; now `faces-v14`) haven't been checked on a large set of real renders yet.
 - Each run keeps its people apart: an anchor too like another person of the run is rendered again with other
   facial features ([Face gate](#face-gate)).
 
@@ -411,7 +411,7 @@ target state.**
 The probes therefore pick a replacement outfit deterministically, for the person's sex and in a different
 colour from the mugshot outfit: "grey sweatshirt" in place of "grey t-shirt" read as no change.
 
-Every run records `FacePrompts.version/0` (currently `faces-v13`). Bump it whenever a template changes.
+Every run records `FacePrompts.version/0` (currently `faces-v14`). Bump it whenever a template changes.
 
 | Version | Change |
 |---|---|
@@ -427,6 +427,7 @@ Every run records `FacePrompts.version/0` (currently `faces-v13`). Bump it whene
 | v11 | The low-resolution probe is taken in one of 14 scenes, indoors and out, not always the same room. |
 | v12 | Seven sampled facial features (nose, eyes, eyebrows, mouth, jaw, cheeks, ears), strongly worded. |
 | v13 | The anchor describes the face first and calls out two features as the most noticeable. |
+| v14 | The two big noses say their shape, not their size: "a very large fleshy nose" and "a very broad nose with a bulbous tip" came out as caricatures (Gérard Depardieu). Now "a large nose with a high, narrow bridge" and "a broad nose with a rounded tip". |
 
 ### Face diversity
 
