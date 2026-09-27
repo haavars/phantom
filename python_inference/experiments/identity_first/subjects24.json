@@ -1,0 +1,242 @@
+[
+  {
+    "name": "subject_001",
+    "seed": 767806422,
+    "clothing": "a bright orange high-visibility work jacket",
+    "facial_hair": "a goatee",
+    "hair": "short straight light brown hair",
+    "age": 75,
+    "eyes": "light brown",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_002",
+    "seed": 782039205,
+    "clothing": "a plain white t-shirt",
+    "facial_hair": "a long full beard",
+    "hair": "straight dark blond hair, short on the sides and longer on top",
+    "age": 73,
+    "eyes": "grey-blue",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_003",
+    "seed": 519472533,
+    "clothing": "a mustard-yellow knitted jumper",
+    "facial_hair": "a goatee",
+    "hair": "a white buzz cut",
+    "age": 63,
+    "eyes": "blue",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_004",
+    "seed": 508628889,
+    "clothing": "a black tracksuit top with white stripes on the shoulders",
+    "facial_hair": "clean-shaven",
+    "hair": "short straight auburn hair",
+    "age": 41,
+    "eyes": "blue",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_005",
+    "seed": 1083559686,
+    "clothing": "a black tracksuit top with white stripes on the shoulders",
+    "facial_hair": "clean-shaven",
+    "hair": "short straight red hair",
+    "age": 68,
+    "eyes": "grey-blue",
+    "skin": "light"
+  },
+  {
+    "name": "subject_006",
+    "seed": 1110619042,
+    "clothing": "a red and black checked flannel shirt",
+    "facial_hair": "a short full beard",
+    "hair": "a receding hairline with short brown hair",
+    "age": 75,
+    "eyes": "hazel",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_007",
+    "seed": 462198378,
+    "clothing": "a sky-blue pinstriped shirt",
+    "facial_hair": "clean-shaven",
+    "hair": "a receding hairline with short brown hair",
+    "age": 43,
+    "eyes": "light brown",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_008",
+    "seed": 474370074,
+    "clothing": "a blue work shirt with the sleeves rolled up",
+    "facial_hair": "clean-shaven",
+    "hair": "short wavy light brown hair with a side parting",
+    "age": 23,
+    "eyes": "light brown",
+    "skin": "light"
+  },
+  {
+    "name": "subject_009",
+    "seed": 1963052378,
+    "clothing": "a burgundy sweatshirt",
+    "facial_hair": "a long full beard",
+    "hair": "short straight dark blond hair",
+    "age": 30,
+    "eyes": "green",
+    "skin": "light"
+  },
+  {
+    "name": "subject_010",
+    "seed": 1408641035,
+    "clothing": "a beige trench coat over a dark jumper",
+    "facial_hair": "a few days of stubble",
+    "hair": "short wavy dark blond hair",
+    "age": 29,
+    "eyes": "hazel",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_011",
+    "seed": 518934619,
+    "clothing": "a black leather biker jacket",
+    "facial_hair": "clean-shaven",
+    "hair": "medium-length straight brown hair",
+    "age": 37,
+    "eyes": "green",
+    "skin": "very fair"
+  },
+  {
+    "name": "subject_012",
+    "seed": 261941569,
+    "clothing": "a blue work shirt with the sleeves rolled up",
+    "facial_hair": "a moustache",
+    "hair": "wavy auburn hair, short on the sides and longer on top",
+    "age": 21,
+    "eyes": "grey-blue",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_013",
+    "seed": 296947056,
+    "clothing": "a blue work shirt with the sleeves rolled up",
+    "facial_hair": "a few days of stubble",
+    "hair": "short wavy blond hair with a side parting",
+    "age": 34,
+    "eyes": "hazel",
+    "skin": "light"
+  },
+  {
+    "name": "subject_014",
+    "seed": 31993895,
+    "clothing": "a plain white t-shirt",
+    "facial_hair": "a short full beard",
+    "hair": "a dark blond buzz cut",
+    "age": 32,
+    "eyes": "blue",
+    "skin": "very fair"
+  },
+  {
+    "name": "subject_015",
+    "seed": 1883371507,
+    "clothing": "a beige trench coat over a dark jumper",
+    "facial_hair": "clean-shaven",
+    "hair": "short wavy auburn hair with a side parting",
+    "age": 24,
+    "eyes": "hazel",
+    "skin": "light"
+  },
+  {
+    "name": "subject_016",
+    "seed": 1875669280,
+    "clothing": "a light blue button-up shirt",
+    "facial_hair": "clean-shaven",
+    "hair": "short wavy light brown hair with a side parting",
+    "age": 62,
+    "eyes": "light brown",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_017",
+    "seed": 1054333211,
+    "clothing": "a blue work shirt with the sleeves rolled up",
+    "facial_hair": "clean-shaven",
+    "hair": "wavy brown hair, short on the sides and longer on top",
+    "age": 67,
+    "eyes": "light brown",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_018",
+    "seed": 1655277084,
+    "clothing": "a tan canvas work jacket",
+    "facial_hair": "a goatee",
+    "hair": "short wavy red hair",
+    "age": 22,
+    "eyes": "blue",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_019",
+    "seed": 1142521731,
+    "clothing": "a sky-blue pinstriped shirt",
+    "facial_hair": "clean-shaven",
+    "hair": "a receding hairline with short blond hair",
+    "age": 61,
+    "eyes": "green",
+    "skin": "very fair"
+  },
+  {
+    "name": "subject_020",
+    "seed": 1448318496,
+    "clothing": "a mustard-yellow knitted jumper",
+    "facial_hair": "clean-shaven",
+    "hair": "wavy dark blond hair, short on the sides and longer on top",
+    "age": 34,
+    "eyes": "hazel",
+    "skin": "fair"
+  },
+  {
+    "name": "subject_021",
+    "seed": 1786810216,
+    "clothing": "a red and black checked flannel shirt",
+    "facial_hair": "a goatee",
+    "hair": "short straight light brown hair",
+    "age": 55,
+    "eyes": "blue",
+    "skin": "very fair"
+  },
+  {
+    "name": "subject_022",
+    "seed": 183010346,
+    "clothing": "a bright orange high-visibility work jacket",
+    "facial_hair": "a few days of stubble",
+    "hair": "wavy salt-and-pepper hair, short on the sides and longer on top",
+    "age": 69,
+    "eyes": "grey-blue",
+    "skin": "very fair"
+  },
+  {
+    "name": "subject_023",
+    "seed": 1588896978,
+    "clothing": "a bright orange high-visibility work jacket",
+    "facial_hair": "clean-shaven",
+    "hair": "short wavy red hair",
+    "age": 29,
+    "eyes": "grey-blue",
+    "skin": "light"
+  },
+  {
+    "name": "subject_024",
+    "seed": 1384703857,
+    "clothing": "a black tracksuit top with white stripes on the shoulders",
+    "facial_hair": "a long full beard",
+    "hair": "short straight light brown hair with a side parting",
+    "age": 30,
+    "eyes": "light brown",
+    "skin": "fair"
+  }
+]

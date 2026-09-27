@@ -295,8 +295,44 @@ Worth doing whatever Phase 1 shows:
   - Arc2Face's code and weights are MIT; it was trained on WebFace42M, a research-only set of web-scraped
     faces. Fine for Phantom, which is research; the leakage check against the pool stays.
 
-  Next, if this goes in: the framing, other groups and women (a Gaussian per group and sex from FairFace),
-  ages, and the profiles and probes conditioned on these anchors.
+  Looked at closely, two problems: some identities are odd (the pilot's identity 6 stares wide-eyed with a red
+  nose, and its anchor copied both), and Arc2Face's faces often look smooth and plastic.
+
+  *Second round, 2026-09-27: 24 identities, cleaner references, mugshot framing.* Scripts, setup and outputs:
+  [`python_inference/experiments/identity_first/`](../python_inference/experiments/identity_first/README.md).
+
+  - **Picking a sample doesn't fix an identity.** Four Arc2Face samples per identity, screened with the face
+    pool's rules (pose, eyes, mouth, glasses, headwear, expression, photo type): only 11 % of samples pass
+    them all, and only 8 of 24 identities have a passing one. Glasses, caps, sunglasses, grins and colour casts
+    belong to the identity (Arc2Face learned them from WebFace's web photos) and come back in every sample.
+  - **Sampling closer to the mean doesn't either.** Identities at temperature 0.8 and 0.6 (the covariance
+    scaled down) gave the same spread, pass rate and leakage as 1.0: the group mean is short (0.10), so after
+    normalising, the direction is still mostly noise.
+  - **No usable detector for "odd" or "plastic".** Identity 6's eye openness was normal (0.37; the white
+    around the iris is what showed). A CLIP "wide-eyed stare" label put both its samples first of 24, but
+    real FairFace faces score 0.98 at the 90th percentile, so it can only rank. A CLIP "plastic skin" label
+    scored real FairFace photos 0.99 too.
+  - **Qwen cleans up what it's given.** The 24 anchors from the best sample each, with the face feathered onto
+    a 960×1280 mid-grey canvas where a text-only anchor has its eyes:
+
+    | 24 Northern European men, ages 21–75 | |
+    |---|---|
+    | Between people, median / p90 / max | 0.08 / 0.19 / 0.29, no pair at 0.3 |
+    | Pass the pool's rules (as text-only anchors, 10 of 12) | 23 of 24 |
+    | Nearest FairFace face, median / max | 0.25 / 0.31 |
+    | Identity kept, median (range) | 0.60 (0.04–0.81) |
+    | Estimated age minus age, median | +9 (text-only +12; InsightFace reads these mugshots old) |
+
+    Framed like text-only mugshots now, and by eye realistic and not plastic, including identity 6's (an
+    ordinary older man).
+  - **A bad reference loses the identity.** Every anchor that kept less than 0.4 of its identity came from a
+    reference with a turned head, a grin or open mouth, sunglasses or a hat; clean references kept 0.61–0.81.
+    Age matters a little (correlation −0.24). An anchor that loses its identity falls back towards Qwen's own
+    face, so at scale those would look alike again.
+
+  So the method works if the references are clean: frontal, neutral, no accessories. Next to test: Arc2Face's
+  pose ControlNet and expression adapter (both in its repository), or a Qwen edit that cleans the reference
+  first; then women and other groups, and the profiles and probes conditioned on these anchors.
 
 ## 9. Open questions
 
