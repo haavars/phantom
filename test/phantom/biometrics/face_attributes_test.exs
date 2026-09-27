@@ -111,6 +111,19 @@ defmodule Phantom.Biometrics.FaceAttributesTest do
     assert attrs.features == fixed.features
   end
 
+  test "reroll_features/2 draws other features for the same person, the same for an attempt" do
+    attrs = FaceAttributes.sample(1234)
+
+    assert FaceAttributes.reroll_features(attrs, 0) == attrs
+
+    first = FaceAttributes.reroll_features(attrs, 1)
+    assert first == FaceAttributes.reroll_features(attrs, 1)
+    assert %{first | features: attrs.features} == attrs
+    assert first.features != attrs.features
+    assert length(first.features) == length(attrs.features)
+    assert FaceAttributes.reroll_features(attrs, 2).features != first.features
+  end
+
   test "describe/1 puts the face first and calls out two of its features" do
     attrs = FaceAttributes.sample(7)
     description = FaceAttributes.describe(attrs)

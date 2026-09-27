@@ -1,4 +1,4 @@
-# CPU only - no GPU or model weights needed.
+# CPU only - no GPU needed. InsightFace downloads its face models on first use (faces.py).
 numpy>=1.26
 scipy>=1.11
 opencv-python-headless>=4.9
@@ -7,5 +7,7 @@ pillow>=10.1
 fastapi
 uvicorn[standard]
 pydantic>=2
+insightface
+onnxruntime
 pytest
 httpx

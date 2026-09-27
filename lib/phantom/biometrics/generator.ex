@@ -15,12 +15,15 @@ defmodule Phantom.Biometrics.Generator do
   shot. So a deleted image comes back from the same inputs even when the
   attribute lists or prompt templates have changed since.
 
-  Face shots start with the anchor (the frontal mugshot) rendered from text;
-  the other face shots are conditioned on it.
+  Face shots start with the anchor (the frontal mugshot) rendered from text,
+  kept apart from the run's other people by `Phantom.Biometrics.FaceGate`;
+  the other face shots are conditioned on it. When the gate re-rolled the
+  anchor's facial features, the subject's attributes and description are
+  updated to the ones it kept.
   """
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{FaceAttributes, FacePrompts, Image, Run, Shots, Storage, Traits}
+  alias Phantom.Biometrics.{FaceAttributes, Image, Run, Shots, Storage, Traits}
   alias Phantom.Biometrics.Generator.{Faces, FrictionRidges}
 
   @doc "Renders the subject at `position` (1-based) of `run`. Returns the completed subject."
@@ -39,16 +42,44 @@ defmodule Phantom.Biometrics.Generator do
     attributes = FaceAttributes.from_map(subject.attributes)
     stored = Map.new(subject.images, &{&1.shot, &1})
 
-    Enum.reduce(run.shots, nil, fn shot, anchor ->
+    Enum.reduce(run.shots, {nil, attributes}, fn shot, {anchor, attributes} ->
       previous = stored[shot]
+      spec = Shots.spec(shot)
 
-      image =
-        kept(previous) || render(Shots.spec(shot), run, subject, attributes, anchor, previous)
+      cond do
+        image = kept(previous) ->
+          {if(spec.anchor?, do: image, else: anchor), attributes}
 
-      if shot == FacePrompts.anchor_shot() and Image.rendered?(image), do: image, else: anchor
+        spec.anchor? ->
+          {image, attributes} = render_anchor(spec, run, subject, attributes, previous)
+          {if(Image.rendered?(image), do: image), attributes}
+
+        true ->
+          render(spec, run, subject, attributes, anchor, previous)
+          {anchor, attributes}
+      end
     end)
 
     Biometrics.complete_subject(subject)
+  end
+
+  defp render_anchor(spec, run, subject, attributes, previous) do
+    others = Biometrics.anchor_templates(run, except: subject)
+
+    {duration_ms, {fields, result, chosen}} =
+      :timer.tc(
+        fn -> Faces.render_anchor(spec, run, subject, attributes, previous, others) end,
+        :millisecond
+      )
+
+    if chosen != attributes do
+      Biometrics.update_subject(subject, %{
+        description: FaceAttributes.describe(chosen),
+        attributes: FaceAttributes.to_map(chosen)
+      })
+    end
+
+    {save(run, subject, spec, fields, result, duration_ms), chosen}
   end
 
   defp kept(image) do
@@ -67,6 +98,10 @@ defmodule Phantom.Biometrics.Generator do
         :millisecond
       )
 
+    save(run, subject, spec, fields, result, duration_ms)
+  end
+
+  defp save(run, subject, spec, fields, result, duration_ms) do
     attrs =
       fields
       |> Map.merge(outcome(result, Storage.key(run.name, subject.name, spec.id)))

@@ -1,7 +1,17 @@
 defmodule Phantom.Biometrics.Report do
   @moduledoc """
-  The quality report for a run's friction-ridge images, stored on the run
+  The quality report for a run's images, stored on the run
   (`Phantom.Biometrics.Run`, `report`) when it finishes.
+
+  Faces, under `"faces"` (see `Phantom.Biometrics.FaceGate`):
+
+    * ArcFace similarity between the anchors of different people: its
+      distribution, how many pairs reach 0.3 and the gate's threshold, and
+      the most similar pairs above the threshold.
+    * The gate: how many anchors passed first time, passed after a re-roll,
+      or kept their best attempt without passing, and how many were unchecked.
+
+  Friction ridges:
 
     * `"verification"`: how many fingers and slaps were verified, and how many
       were accepted first time, accepted after a retry, or rejected. Also the
@@ -13,10 +23,10 @@ defmodule Phantom.Biometrics.Report do
       threshold are listed, since they point to weak captures or to colliding
       synthetic identities.
 
-  Runs without verified friction-ridge images get no report.
+  Runs with neither anchors nor verified friction-ridge images get no report.
   """
 
-  alias Phantom.Biometrics.Shots
+  alias Phantom.Biometrics.{FaceGate, FacePrompts, Shots}
   alias Phantom.Services.Ridgegen
 
   # bozorth3's customary match threshold.
@@ -25,6 +35,10 @@ defmodule Phantom.Biometrics.Report do
   @max_non_mated 3000
   @max_listed 20
 
+  # Anchor pairs grow quadratically too; beyond this, sample evenly.
+  @max_face_pairs 20_000
+  @look_alike 0.3
+
   @doc "The report for `subjects` (with their images) of a run, or nil."
   def build(subjects) do
     checks =
@@ -32,15 +46,94 @@ defmodule Phantom.Biometrics.Report do
           %{status: :ok, meta: %{"verification" => %{} = check} = meta} <- subject.images,
           do: Map.put(check, "impression", meta["impression"])
 
-    if checks == [] do
+    ridges =
+      if checks != [] do
+        %{
+          "threshold" => @threshold,
+          "verification" => verification(checks),
+          "matching" => matching(subjects)
+        }
+      end
+
+    faces = faces(subjects)
+
+    case {ridges, faces} do
+      {nil, nil} -> nil
+      {ridges, nil} -> ridges
+      {ridges, faces} -> Map.put(ridges || %{}, "faces", faces)
+    end
+  end
+
+  defp faces(subjects) do
+    anchors =
+      for subject <- subjects,
+          %{status: :ok, shot: shot} = image <- subject.images,
+          shot == FacePrompts.anchor_shot(),
+          do: {subject.name, image}
+
+    templates =
+      for {name, %{template: template}} <- anchors,
+          is_binary(template),
+          do: {name, FaceGate.decode(template)}
+
+    if anchors == [] do
       nil
     else
+      pairs =
+        for [{a, x} | rest] <- tails(templates), {b, y} <- rest do
+          {a, b, Float.round(FaceGate.dot(x, y), 3)}
+        end
+
+      scores = pairs |> sample(@max_face_pairs) |> Enum.map(&elem(&1, 2))
+      threshold = FaceGate.threshold()
+
       %{
-        "threshold" => @threshold,
-        "verification" => verification(checks),
-        "matching" => matching(subjects)
+        "threshold" => threshold,
+        "anchors" => length(anchors),
+        "gate" => gate(Enum.map(anchors, fn {_name, image} -> (image.meta || %{})["gate"] end)),
+        "similarity" => similarity_stats(scores),
+        "pairs" => length(pairs),
+        "look_alike_threshold" => @look_alike,
+        "look_alikes" => Enum.count(pairs, &(elem(&1, 2) >= @look_alike)),
+        "above_threshold" => Enum.count(pairs, &(elem(&1, 2) >= threshold)),
+        "closest" =>
+          pairs
+          |> Enum.filter(&(elem(&1, 2) >= threshold))
+          |> Enum.sort_by(&elem(&1, 2), :desc)
+          |> Enum.take(@max_listed)
+          |> Enum.map(fn {a, b, score} -> %{"a" => a, "b" => b, "score" => score} end)
       }
     end
+  end
+
+  defp gate(gates) do
+    checked = Enum.filter(gates, &(is_map(&1) and Map.has_key?(&1, "passed")))
+    {passed, failed} = Enum.split_with(checked, & &1["passed"])
+
+    %{
+      "checked" => length(checked),
+      "unchecked" => length(gates) - length(checked),
+      "passed_first" => Enum.count(passed, &((&1["attempts"] || 1) == 1)),
+      "rerolled" => Enum.count(passed, &((&1["attempts"] || 1) > 1)),
+      "failed" => length(failed),
+      "renders" => checked |> Enum.map(&(&1["attempts"] || 1)) |> Enum.sum()
+    }
+  end
+
+  # Similarity is better low, so the upper tail matters: mean, median, p90 and max.
+  defp similarity_stats([]), do: %{"count" => 0}
+
+  defp similarity_stats(scores) do
+    sorted = Enum.sort(scores)
+    count = length(sorted)
+
+    %{
+      "count" => count,
+      "mean" => Float.round(Enum.sum(sorted) / count, 3),
+      "median" => percentile(sorted, count, 0.5),
+      "p90" => percentile(sorted, count, 0.9),
+      "max" => List.last(sorted)
+    }
   end
 
   defp verification(checks) do

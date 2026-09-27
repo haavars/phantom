@@ -255,18 +255,18 @@ defmodule PhantomWeb.BiometricsLive do
   defp option_label(value), do: value |> String.replace(~r/\A(a|an) /, "") |> sentence()
 
   # Runs queue behind the active one, but only start when the services their
-  # shots need are up.
+  # shots need are up. Faces need the biometrics service too, for the face gate.
   defp can_start?(services, needs) do
     (needs.face or needs.ridge) and
       (not needs.face or services.face == :ready) and
-      (not needs.ridge or services.ridge == :ready)
+      services.ridge == :ready
   end
 
   defp renderer_note("procedural"), do: "procedural · CPU"
   defp renderer_note(_diffusion), do: "diffusion · GPU"
 
   defp service_name(:face), do: "Qwen-Image-2.1 (faces)"
-  defp service_name(:ridge), do: "Friction-ridge service (fingers, palms)"
+  defp service_name(:ridge), do: "Biometrics service (fingers, palms, face checks)"
 
   defp status_message(:unknown), do: "checking…"
   defp status_message(:loading), do: "starting up, this can take a while…"
@@ -911,7 +911,7 @@ defmodule PhantomWeb.BiometricsLive do
             class="space-y-1.5 text-xs text-base-content/70"
           >
             <.service_line :if={@needs.face} service={:face} status={@services.face} />
-            <.service_line :if={@needs.ridge} service={:ridge} status={@services.ridge} />
+            <.service_line service={:ridge} status={@services.ridge} />
           </ul>
 
           <p :for={{message, _opts} <- @form[:shots].errors} class="text-sm text-error">

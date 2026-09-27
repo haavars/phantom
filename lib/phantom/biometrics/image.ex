@@ -5,7 +5,9 @@ defmodule Phantom.Biometrics.Image do
   `Phantom.Biometrics.Storage`).
 
   Face shots keep their prompt and the anchor image they were conditioned on
-  (`reference`). Friction-ridge shots keep a summary of their ground truth in
+  (`reference`). The anchor also keeps its ArcFace `template` and, in `meta`,
+  how it did against the other anchors of its run (`"gate"`, see
+  `Phantom.Biometrics.FaceGate`). Friction-ridge shots keep a summary of their ground truth in
   `meta` (pattern classes, counts, verification scores) and the full ground
   truth (minutiae, singular points, detected minutiae) in `ground_truth`.
 
@@ -37,6 +39,7 @@ defmodule Phantom.Biometrics.Image do
     field :sha256, :string
     field :meta, :map
     field :ground_truth, :map
+    field :template, :binary, redact: true
     field :duration_ms, :integer
     field :error, :string
 
@@ -63,6 +66,7 @@ defmodule Phantom.Biometrics.Image do
     :sha256,
     :meta,
     :ground_truth,
+    :template,
     :duration_ms,
     :error
   ]

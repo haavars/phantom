@@ -606,10 +606,199 @@ defmodule PhantomWeb.BiometricsComponents do
     """
   end
 
+  @doc "The face gate result on an anchor (`meta[\"gate\"]`, see `Phantom.Biometrics.FaceGate`), or nil."
+  def face_gate(%{modality: :face, meta: %{"gate" => %{} = gate}}), do: gate
+  def face_gate(_image), do: nil
+
+  attr :gate, :map, required: true
+
+  @doc "How an anchor did in the face gate: its most alike person and its attempts."
+  def face_gate_details(assigns) do
+    ~H"""
+    <div id="face-gate" class="space-y-2 text-xs">
+      <h3 class="font-medium text-base-content/50">Face gate</h3>
+      <%= if @gate["error"] do %>
+        <p class="text-warning">Not checked: {@gate["error"]}</p>
+      <% else %>
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
+          <dt class="text-base-content/50">Most alike</dt>
+          <dd>
+            <%= cond do %>
+              <% @gate["faces"] == 0 -> %>
+                <span class="text-error">no face found</span>
+              <% is_nil(@gate["similarity"]) -> %>
+                nobody to compare with yet
+              <% true -> %>
+                <span class="font-mono">{@gate["similarity"]}</span> to {@gate["closest"]}
+            <% end %>
+          </dd>
+          <dt class="text-base-content/50">Result</dt>
+          <dd class={if(@gate["passed"], do: "text-success", else: "text-error")}>
+            {if @gate["passed"], do: "below", else: "not below"} {@gate["threshold"]}
+          </dd>
+          <dt class="text-base-content/50">Attempts</dt>
+          <dd>
+            {@gate["attempts"] || 1}
+            <span :if={(@gate["attempts"] || 1) > 1} class="font-mono text-base-content/50">
+              ({Enum.map_join(@gate["scores"] || [], " · ", &(&1 || "no face"))})
+            </span>
+          </dd>
+        </dl>
+      <% end %>
+    </div>
+    """
+  end
+
   defp finger_label(fgp) when is_integer(fgp),
     do: Shots.label("rolled_" <> String.pad_leading(Integer.to_string(fgp), 2, "0"))
 
   defp finger_label(_fgp), do: "–"
+
+  attr :report, :map, required: true
+
+  @doc """
+  The face part of a run's report (`Phantom.Biometrics.Report`, `"faces"`):
+  how alike the anchors of different people are, by ArcFace similarity, and
+  what the face gate (`Phantom.Biometrics.FaceGate`) did.
+  """
+  def face_report(assigns) do
+    report = assigns.report
+    similarity = report["similarity"] || %{}
+
+    assigns =
+      assigns
+      |> assign(:gate, report["gate"] || %{})
+      |> assign(:similarity, similarity)
+      |> assign(:threshold, report["threshold"])
+      |> assign(:look_alike, report["look_alike_threshold"] || 0.3)
+      |> assign(:marks, similarity_marks(similarity))
+
+    ~H"""
+    <section
+      id="face-report"
+      class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
+      aria-labelledby="face-report-title"
+    >
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="face-report-title" class="text-sm font-semibold">Face diversity</h2>
+        <p class="text-xs text-base-content/50">
+          ArcFace similarity between different people's anchors · re-rendered at {@threshold} or more
+        </p>
+      </div>
+
+      <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <.stat_tile id="face-report-anchors" label="Anchors" value={@report["anchors"]} />
+        <.stat_tile
+          id="face-report-passed"
+          label="Passed first time"
+          value={@gate["passed_first"]}
+          icon="hero-check-circle-mini"
+          tone="text-success"
+        />
+        <.stat_tile
+          id="face-report-rerolled"
+          label="Passed after re-roll"
+          value={@gate["rerolled"]}
+          icon="hero-arrow-path-mini"
+          tone="text-warning"
+        />
+        <.stat_tile
+          id="face-report-failed"
+          label="Kept without passing"
+          value={@gate["failed"]}
+          icon="hero-x-circle-mini"
+          tone="text-error"
+        />
+      </div>
+
+      <div id="face-report-similarity" class="mt-4">
+        <%= if (@similarity["count"] || 0) == 0 do %>
+          <p class="text-xs text-base-content/60">Needs the anchors of two or more people.</p>
+        <% else %>
+          <div class="relative mt-2 mb-1 h-2 rounded-full bg-gradient-to-r from-success/30 via-warning/30 to-error/40">
+            <div
+              class="absolute -top-1.5 h-5 w-px bg-base-content/60"
+              style={"left: #{similarity_position(@threshold)}%"}
+              title={"Gate threshold #{@threshold}"}
+            />
+            <div
+              :for={{label, value, tone} <- @marks}
+              class={[
+                "absolute -top-1 size-4 -translate-x-1/2 rounded-full border-2 border-base-100 shadow transition hover:scale-125",
+                tone
+              ]}
+              style={"left: #{similarity_position(value)}%"}
+              title={"#{label} #{two_decimals(value)}"}
+            />
+          </div>
+          <div class="flex justify-between font-mono text-[10px] text-base-content/40">
+            <span>0</span><span>0.2</span><span>0.4</span><span>0.6</span>
+          </div>
+          <dl class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            <div :for={{label, value, tone} <- @marks} class="flex items-center gap-1.5">
+              <span class={["size-2.5 rounded-full", tone]} />
+              <dt class="text-base-content/60">{label}</dt>
+              <dd class="font-mono">{two_decimals(value)}</dd>
+            </div>
+          </dl>
+          <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/70">
+            <span id="face-report-pairs">{@report["pairs"]} pairs</span>
+            <span id="face-report-look-alikes">
+              {@report["look_alikes"]} at or above {@look_alike}
+            </span>
+            <span id="face-report-above-threshold">
+              <.icon
+                name={
+                  if(@report["above_threshold"] > 0,
+                    do: "hero-exclamation-triangle-mini",
+                    else: "hero-check-circle-mini"
+                  )
+                }
+                class={[
+                  "size-3.5 align-[-2px]",
+                  if(@report["above_threshold"] > 0, do: "text-warning", else: "text-success")
+                ]}
+              />
+              {@report["above_threshold"]} at or above {@threshold}
+            </span>
+            <span :if={@gate["unchecked"] > 0} class="text-base-content/50">
+              {@gate["unchecked"]} anchors unchecked
+            </span>
+          </p>
+          <details :if={@report["closest"] != []} class="mt-2 text-xs">
+            <summary class="cursor-pointer text-base-content/60 transition hover:text-base-content">
+              Most alike pairs
+            </summary>
+            <ul class="mt-1 space-y-0.5 font-mono text-base-content/70">
+              <li :for={pair <- @report["closest"]}>
+                {pair["a"]} × {pair["b"]}: {pair["score"]}
+              </li>
+            </ul>
+          </details>
+        <% end %>
+      </div>
+    </section>
+    """
+  end
+
+  defp similarity_marks(similarity) do
+    for {key, label, tone} <- [
+          {"median", "Median", "bg-base-content/40"},
+          {"p90", "90th percentile", "bg-base-content/70"},
+          {"max", "Max", "bg-base-content"}
+        ],
+        is_number(similarity[key]),
+        do: {label, similarity[key], tone}
+  end
+
+  defp two_decimals(value) when is_number(value),
+    do: :erlang.float_to_binary(value / 1, decimals: 2)
+
+  # On a 0-0.6 scale; anything outside is pinned to the ends.
+  defp similarity_position(value) when is_number(value),
+    do: value |> max(0.0) |> min(0.6) |> Kernel.*(100 / 0.6) |> Float.round(1)
+
+  defp similarity_position(_value), do: 0
 
   attr :report, :map, required: true
 

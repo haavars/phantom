@@ -55,6 +55,9 @@ echo "==> Installing requirements.txt"
 echo "==> Verifying the install"
 .venv/bin/python -c "import numpy, scipy, cv2, skimage, fastapi; print('ok: numpy', numpy.__version__, '| opencv', cv2.__version__)"
 
+echo "==> InsightFace buffalo_l face models (about 280 MB, into ~/.insightface)"
+.venv/bin/python -c "from insightface.utils.storage import ensure_available; ensure_available('models', 'buffalo_l', root='~/.insightface')"
+
 install_nbis() {
   local tool missing=0
   for tool in "${NBIS_TOOLS[@]}"; do

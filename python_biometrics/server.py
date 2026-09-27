@@ -35,6 +35,11 @@ each template is a list of [x, y, angle, quality] as in `verification.detected`
 and pairs index into templates, returns {"scores": [...]}: NBIS bozorth3 scores,
 for mated / non-mated reports.
 
+POST /face/embed with {"image": base64 PNG or JPEG} returns the ArcFace template of the largest face in it
+(faces.py): {"faces", "template" (base64, 512 little-endian float32, L2-normalised), "det", "bbox",
+"eye_dist", "model"}, or {"faces": 0} when there's none. The Phoenix app uses it to keep the anchors of a
+run's people apart (Phantom.Biometrics.FaceGate).
+
 Run with `python server.py` (PORT defaults to 8001).
 """
 
@@ -53,6 +58,7 @@ from PIL.PngImagePlugin import PngInfo
 from pydantic import BaseModel, Field
 
 import diffusion
+import faces
 import verify
 from ridgegen import card, fingerprints, palm
 from ridgegen import impression as imp
@@ -85,10 +91,20 @@ class MatchRequest(BaseModel):
     pairs: list[tuple[int, int]] = Field(max_length=20000)
 
 
+class EmbedRequest(BaseModel):
+    image: str = Field(max_length=40_000_000)
+
+
 @app.get("/health")
 def health():
     renderers = ["procedural"] + (["diffusion"] if diffusion_available() else [])
-    return {"status": "ready", "version": VERSION, "verification": verify.available(), "renderers": renderers}
+    return {
+        "status": "ready",
+        "version": VERSION,
+        "verification": verify.available(),
+        "renderers": renderers,
+        "faces": faces.available(),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -123,6 +139,22 @@ def match(request: MatchRequest):
         raise HTTPException(status_code=400, detail="pair index out of range")
     with _lock:
         return {"scores": verify.bozorth3(request.templates, request.pairs)}
+
+
+@app.post("/face/embed")
+def face_embed(request: EmbedRequest):
+    if not faces.available():
+        raise HTTPException(status_code=503, detail="InsightFace isn't installed (run setup.sh)")
+    try:
+        image = Image.open(io.BytesIO(base64.b64decode(request.image, validate=True)))
+        image.load()
+    except Exception as exc:  # noqa: BLE001 - any decoding failure is the client's
+        raise HTTPException(status_code=400, detail=f"couldn't read the image: {exc}") from exc
+    result = faces.embed(image)
+    if "template" in result:
+        template = result["template"].astype("<f4").tobytes()
+        result = {**result, "template": base64.b64encode(template).decode("ascii"), "model": faces.MODEL}
+    return result
 
 
 def dispatch(request):

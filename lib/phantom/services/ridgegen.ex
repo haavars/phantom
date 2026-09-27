@@ -2,7 +2,8 @@ defmodule Phantom.Services.Ridgegen do
   @moduledoc """
   HTTP client for the synthetic friction-ridge service (`python_biometrics/`,
   "ridgegen"): rolled fingerprints, slaps, palmprints and tenprint cards,
-  verified against their ground truth, and bozorth3 matching.
+  verified against their ground truth, and bozorth3 matching. It also
+  computes ArcFace templates of face images (`face_template/1`).
 
   It runs next to this app as `Phantom.Services.RidgegenProcess` (see
   `Phantom.Services.PythonProcess`).
@@ -90,6 +91,30 @@ defmodule Phantom.Services.Ridgegen do
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, "Matching failed (HTTP #{status}): #{inspect(body)}"}
+
+      {:error, exception} ->
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  @doc """
+  The ArcFace template of the largest face in `image` (PNG or JPEG bytes):
+  InsightFace `buffalo_l`, as in `python_biometrics/faces.py`.
+
+  Returns `{:ok, %{faces: count, template: binary, det: confidence}}`, where
+  `template` is 512 little-endian float32s, L2-normalised; with no face,
+  `{:ok, %{faces: 0}}`. Or `{:error, message}`.
+  """
+  def face_template(image) when is_binary(image) do
+    case Req.post(request(), url: "/face/embed", json: %{image: Base.encode64(image)}) do
+      {:ok, %Req.Response{status: 200, body: %{"faces" => 0}}} ->
+        {:ok, %{faces: 0}}
+
+      {:ok, %Req.Response{status: 200, body: %{"faces" => faces, "template" => template} = body}} ->
+        {:ok, %{faces: faces, template: Base.decode64!(template), det: body["det"]}}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, "Face embedding failed (HTTP #{status}): #{inspect(body)}"}
 
       {:error, exception} ->
         {:error, Exception.message(exception)}

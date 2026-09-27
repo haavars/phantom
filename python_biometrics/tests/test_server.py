@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import diffusion
+import faces
 import verify
 from server import app
 
@@ -63,3 +64,15 @@ def test_diffusion_renderer_is_recorded():
     assert image.info["Renderer"] == body["meta"]["renderer"]
     if verify.available():
         assert body["meta"]["verification"]["renderer"] == body["meta"]["renderer"]
+
+
+@pytest.mark.skipif(not faces.available(), reason="InsightFace not installed (run setup.sh)")
+def test_face_embed_finds_no_face_in_a_blank_image():
+    buffer = io.BytesIO()
+    Image.new("RGB", (480, 640), (128, 128, 128)).save(buffer, format="PNG")
+    body = client.post("/face/embed", json={"image": base64.b64encode(buffer.getvalue()).decode()}).json()
+    assert body == {"faces": 0}
+
+
+def test_face_embed_rejects_what_isnt_an_image():
+    assert client.post("/face/embed", json={"image": base64.b64encode(b"not a png").decode()}).status_code in (400, 503)

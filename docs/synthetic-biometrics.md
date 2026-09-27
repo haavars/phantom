@@ -20,7 +20,7 @@ can be downloaded as a ZIP with a manifest, or as ANSI/NIST-ITL transactions to 
 implements the face and friction-ridge parts of [`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md).
 You can drive it from IEx or from the web UI.
 
-**Status (2026-09-25):**
+**Status (2026-09-27):**
 
 - Faces and friction ridges both work, from IEx and the web UI. Runs, subjects and images are stored in
   Postgres, the files on local disk.
@@ -31,6 +31,8 @@ You can drive it from IEx or from the web UI.
   [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) for what's done and what's next.
 - The face prompt changes since `faces-v3` (per-probe pose and expression, healed scars, age-scaled ageing,
   clothing by sex, the low-resolution probe, facial features; now `faces-v13`) haven't been checked on a large set of real renders yet.
+- Each run keeps its people apart: an anchor too like another person of the run is rendered again with other
+  facial features ([Face gate](#face-gate)).
 
 > Everything this produces is synthetic test data. Use it for functional, integration and load testing of an
 > ABIS, not as evidence of matching accuracy, and never send it to a production or live-exchange system. See
@@ -41,11 +43,13 @@ You can drive it from IEx or from the web UI.
 Run `mix phx.server`, which starts both services:
 
 - Qwen-Image-2.1 on port 8000, for faces (GPU)
-- the friction-ridge service on port 8001 (patterns and verification on the CPU, diffusion rendering on the GPU)
+- the biometrics service on port 8001: friction ridges (patterns and verification on the CPU, diffusion
+  rendering on the GPU) and the face templates for the [face gate](#face-gate) (CPU)
 
-The friction-ridge service needs its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`.
-This builds the NIST tools (verification, and WSQ for the NIST export) and installs the diffusion renderer; leave
-out `--diffusion` on a machine without an NVIDIA GPU and use the `procedural` renderer.
+The biometrics service needs its one-time setup first: `cd python_biometrics && ./setup.sh --diffusion`.
+This builds the NIST tools (verification, and WSQ for the NIST export), fetches InsightFace's face models and
+installs the diffusion renderer; leave out `--diffusion` on a machine without an NVIDIA GPU and use the
+`procedural` renderer. Face runs need both services.
 
 Start runs from the web UI (below), or from IEx attached to the running app (`iex -S mix phx.server`):
 
@@ -220,10 +224,13 @@ Phantom.Biometrics.create_run/1        from the web form or IEx
             ├─ FaceAttributes.sample/2              who the person is (with the run's Traits), or the
             │                                       subject's stored attributes when rendered before
             ├─ Generator.Faces                      face shots: FacePrompts + Services.Qwen   (python_inference, GPU, :8000)
+            │    └─ FaceGate                        the anchor against the run's other anchors: ArcFace
+            │                                       templates via Services.Ridgegen.face_template/1 (:8001)
             ├─ Generator.FrictionRidges             ridge shots: Services.Ridgegen            (python_biometrics, :8001)
             ├─ Storage.put/2                        the image file
             └─ Biometrics.save_image/2, complete_subject/1   rows + PubSub; the last subject builds the
-                                                             Report (bozorth3 via Services.Ridgegen.match/2)
+                                                             Report (anchor similarities; bozorth3 via
+                                                             Services.Ridgegen.match/2)
 ```
 
 `Phantom.Biometrics.Shots` lists every shot across both modalities and expands group names. For example,
@@ -237,7 +244,8 @@ The face anchor is only added when there are face shots.
 For each subject the harness:
 
 1. Samples a fictional person's appearance from the subject seed.
-2. Generates the **anchor**, a frontal mugshot, from the text description alone.
+2. Generates the **anchor**, a frontal mugshot, from the text description alone, and renders it again with
+   other facial features while it looks too much like another person of the run ([Face gate](#face-gate)).
 3. Generates every other shot with the anchor as its **only reference image**.
 
 Conditioning on the anchor keeps the identity consistent across poses and probes without a separate identity
@@ -454,9 +462,53 @@ What that shows:
 - Mild wording ("a hooked nose") barely moves the model off its default face, hence the strong wording.
 
 With 28 pairs per variant, differences of about 0.02 are noise. v13 is still some way from real strangers (about
-0.17 against 0 to 0.1). The next steps are a diversity gate (re-roll an anchor that's too similar to an earlier
-subject of the run) and conditioning the anchor on real faces from open datasets, in
-[`face-source-conditioning-plan.md`](face-source-conditioning-plan.md).
+0.17 against 0 to 0.1), and the worst pairs of a larger run still reach 0.46. Conditioning the anchor on real
+faces from open datasets didn't help: Qwen copies one reference instead of blending them
+([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md), Phase 1). So the run keeps its people
+apart with a gate instead.
+
+### Face gate
+
+`Phantom.Biometrics.FaceGate` compares every new anchor with the anchors already rendered in its run, and
+renders it again when it looks too much like one of them:
+
+1. The biometrics service computes the anchor's ArcFace template (`POST /face/embed`: InsightFace `buffalo_l`,
+   the SCRFD detector at 640² and `w600k_r50`, on the CPU, about 0.15 s). The same models as the face pool, so
+   scores compare with it.
+2. Its cosine similarity to every other anchor of the run must be below **0.35**, a little under where a
+   matcher starts to call two faces the same person (about 0.4).
+3. If not, the anchor is rendered again, up to 5 attempts. Attempt *n* draws a new feature from every group
+   (`FaceAttributes.reroll_features/2`, from the subject seed and *n*) and takes the seed
+   `phash2({subject_seed, "mugshot_frontal", n})`: the seed alone changes pose more than identity. Everything
+   else about the person stays.
+4. The first attempt that passes is kept; if none does, the one least like anyone. An attempt where no face is
+   found counts as failed. The subject's attributes and description are updated to the features kept.
+
+The anchor stores its template (`images.template`, 512 float32) and in `meta["gate"]` the similarity to the
+most alike person, who that is, whether it passed, and each attempt's score. The detail view shows them. An
+anchor rendered again from its stored prompt and seed (a deleted file) is only checked, not re-rolled. If the
+service can't embed the image, the anchor is kept unchecked and says so.
+
+The run report has a face section: the distribution of similarity between every pair of anchors (median, 90th
+percentile, max), how many pairs reach 0.3 and 0.35, the most alike pairs, and how many anchors passed first
+time, after a re-roll, or not at all.
+
+First run, 2026-09-27: 12 Northern European men (the hardest case: one ancestry, one sex), `faces-v13`, anchors
+only.
+
+| | |
+|---|---|
+| Passed first time | 9 |
+| Passed after a re-roll | 3 (first attempts 0.59, 0.41 and 0.40; second attempts 0.35, 0.32, 0.29) |
+| Kept without passing | 0 |
+| Renders | 15 for 12 anchors (+25 % GPU time, about 46 s per render) |
+| Similarity between different people, median / p90 / max | 0.22 / 0.32 / 0.35 (66 pairs) |
+| Pairs at or above 0.3 | 15 |
+
+The re-rolled faces look as realistic as the others and still match their description (age, hair). The gate
+removes the look-alikes (without it, this run would have had a pair at 0.59), not the mean: same-sex,
+same-ancestry pairs still sit around 0.22, against 0 to 0.1 for real strangers. A lower threshold would move
+more of the distribution, at the cost of more re-renders; 0.35 is a first setting.
 
 ## Friction ridges
 
@@ -508,7 +560,8 @@ The service therefore checks every finger and slap it renders (`python_biometric
 - The results go into the ground truth (`verification`: metrics, attempts, the missed and spurious points, the
   detected minutiae) and a summary into `meta`.
 
-At the end of a run the harness stores its report on the run (`runs.report`, see `Phantom.Biometrics.Report`):
+At the end of a run the harness stores its report on the run (`runs.report`, see `Phantom.Biometrics.Report`;
+the face part is in [Face gate](#face-gate)):
 
 - how many images were verified, accepted, accepted after a retry, or rejected
 - NFIQ 2, recall and spurious-rate distributions per impression type
@@ -531,12 +584,15 @@ Every value is derived from the run seed (and the run's traits):
 | Subject seed | `phash2({run_seed, subject_index})` |
 | Attributes | Subject seed and the run's traits |
 | Prompts, probe pose and expression | Attributes, shot |
-| Per-shot face image seed | `phash2({subject_seed, shot})` |
+| Per-shot face image seed | `phash2({subject_seed, shot})`; a re-rolled anchor `phash2({subject_seed, {shot, attempt}})` |
+| Re-rolled facial features | Subject seed, attempt |
 | Finger and palm masters, captures | Subject seed, finger or palm code, capture number |
 | Rendering (procedural noise, diffusion seed) | Subject seed, shot code, capture number, attempt number |
 
 What was derived is also stored, and rendering again starts from what's stored: a subject keeps the seed and
-attributes it was first rendered with, and a face shot its prompt, seed and size. So a deleted image comes
+attributes it was first rendered with (with the features the face gate kept), and a face shot its prompt, seed
+and size. Which anchors the gate re-rolls depends on the people rendered before them in the run, so a subject
+of a larger run can differ from the same subject of a smaller one. So a deleted image comes
 back from the same inputs even after the attribute lists or prompt templates have changed. Bit-identical
 output also needs the same model weights, library versions and GPU behaviour, which aren't recorded yet.
 
@@ -557,7 +613,7 @@ Runs live in three Postgres tables, written as a run renders so pages can follow
 |---|---|---|
 | `runs` | run | name, seed, status (`queued`, `running`, `finished`, `cancelled`, `failed`), shots, captures, renderer, steps, prompt version, traits, subject count, quality report, error, start and finish times |
 | `subjects` | synthetic person | run, position, name (`subject_001`), seed, description, sampled attributes, when every shot was attempted |
-| `images` | shot of a subject (UUIDv7 id) | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary (`meta`) and full ground truth, duration, error |
+| `images` | shot of a subject (UUIDv7 id) | shot and capture, status (`ok`, `error`, `skipped`), size, seed, prompt, the anchor it was conditioned on, storage key, byte size, SHA-256, ground-truth summary or face gate result (`meta`), full ground truth, the anchor's ArcFace template, duration, error |
 
 Image files are kept by `Phantom.Biometrics.Storage`. The default backend, `Storage.Local`, writes them to
 `config :phantom, :biometrics_output_dir` (default `data/synthetic/biometrics`):
@@ -628,8 +684,11 @@ draining the queue in the test process) and store images under `tmp/test/biometr
   resume (including deleted files and finishing with the last subject), adding shots, cancel, failure,
   progress and events.
 - `test/phantom/biometrics/`
-  - **Generator:** face anchor conditioning; friction-ridge shots from the subject seed with ground truth;
-    the renderer; resuming keeps stored images; failed shots; the quality report.
+  - **Generator:** face anchor conditioning; the face gate re-rolling an anchor like another person's, and
+    only checking one rendered again; friction-ridge shots from the subject seed with ground truth; the
+    renderer; resuming keeps stored images; failed shots; the quality report.
+  - **Face gate:** first pass, re-rolls until one passes, the best kept when none does, no face, service
+    errors, similarity.
   - **GenerateSubject worker:** renders, snoozes while a service is down, stops for cancelled runs, marks runs
     failed when discarded.
   - **Rendering from stored inputs:** stored attributes and prompts win over today's code; a shot added later
@@ -657,7 +716,7 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 - minutiae that stay inside the print
 - slap finger order, and slap fingers whose patterns match the rolled prints
 - palms and the card
-- the HTTP API, including 500 ppi and synthetic PNG metadata
+- the HTTP API, including 500 ppi and synthetic PNG metadata, and `/face/embed` (needs InsightFace)
 - verification: minutiae pairing, and procedural prints that pass while a different finger fails (needs the
   NIST tools)
 - the diffusion renderer: deterministic, keeps the ridges (needs `setup.sh --diffusion` and a GPU)
@@ -674,11 +733,11 @@ draining the queue in the test process) and store images under `tmp/test/biometr
     needs (level 30 or higher); see [`image-resolution.md`](image-resolution.md).
   - Build ("heavy-set", "slim") is mostly ignored. This matters little for a head-and-shoulders image.
   - Faces are still more alike than real strangers: a mean ArcFace similarity of about 0.17 between different
-    people with `faces-v13`, against 0 to 0.1 for real photos ([Face diversity](#face-diversity)). Next, a
-    face-embedding check in the pipeline (the ABIS matcher if its API is available, otherwise ArcFace):
-    - reject new subjects that are too similar to existing ones
+    people with `faces-v13`, against 0 to 0.1 for real photos ([Face diversity](#face-diversity)). The
+    [face gate](#face-gate) cuts off the look-alikes, not the mean. Still to do with the same templates:
     - reject probes that no longer match their anchor
-  - Condition anchors on several real faces from open datasets, with a leakage gate:
+    - check against the ABIS matcher too, if its API is available
+  - Conditioning anchors on real faces from open datasets failed its Phase 1 test (Qwen copies one face):
     [`face-source-conditioning-plan.md`](face-source-conditioning-plan.md).
 - **Friction ridges**
   - Next steps of [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md): acquisition styles
@@ -723,11 +782,12 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `lib/phantom/biometrics/storage.ex`, `storage/local.ex` | Where image files live: the storage behaviour and its local-disk backend |
 | `lib/phantom/biometrics/previews.ex` | Small WebP copies of images for thumbnails, made on first request and kept by hash |
 | `lib/phantom/biometrics/shots.ex` | Registry of all shots across modalities; group and capture expansion |
-| `lib/phantom/biometrics/report.ex` | Run quality report: verification outcomes, bozorth3 mated vs non-mated |
+| `lib/phantom/biometrics/report.ex` | Run quality report: anchor similarity and the face gate; verification outcomes, bozorth3 mated vs non-mated |
+| `lib/phantom/biometrics/face_gate.ex` | Keeps a run's people apart: compares each anchor's ArcFace template with the others, re-rolls look-alikes |
 | `lib/phantom/biometrics/gallery.ex` | Identities for the landing page gallery |
 | `lib/phantom/biometrics/face_attributes.ex` | Seeded person sampling (with fixed traits), option lists, `describe/1` |
 | `lib/phantom/biometrics/face_prompts.ex` | Shot specs, prompt templates, probe variation, prompt version |
-| `lib/phantom/services/qwen.ex`, `ridgegen.ex` | HTTP clients for the two Python services |
+| `lib/phantom/services/qwen.ex`, `ridgegen.ex` | HTTP clients for the two Python services (face templates come from `ridgegen.ex`) |
 | `lib/phantom/services/python_process.ex` | Supervises both Python services as OS processes (`QwenProcess`, `RidgegenProcess`) |
 | `lib/phantom_web/live/landing_live.ex` | `/`: what Phantom is, and the gallery of identities |
 | `lib/phantom_web/live/biometrics_live.ex` | `/biometrics`: new-run form with traits and summary, the run rendering now, run list |
@@ -743,3 +803,4 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 | `python_inference/face_pool/` | Builds the face pool from open face datasets: embed, landmarks, CLIP screen, filters ([`face-pool.md`](face-pool.md)) |
 | `python_biometrics/server.py`, `ridgegen/` | Friction-ridge FastAPI service and generator (see its README) |
 | `python_biometrics/verify.py`, `diffusion.py` | Verification with NIST tools; the diffusion renderer |
+| `python_biometrics/faces.py` | ArcFace templates of face images (InsightFace `buffalo_l`), for the face gate |

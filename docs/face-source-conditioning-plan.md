@@ -1,6 +1,8 @@
 # Plan: condition the anchor on faces from open datasets
 
-Status: proposal, 2026-09-25. Nothing built.
+Status: Phase 1 done 2026-09-25, go criterion not met (§7). The run diversity gate from §8 is built for
+text-only anchors (2026-09-27, [Face gate](synthetic-biometrics.md#face-gate)); the pool (`face-pool.md`) stays
+for a later attempt.
 
 ## 1. Goal and idea
 
@@ -148,7 +150,7 @@ Every anchor made from pool faces is checked before it's stored:
 3. **Against the whole pool:** the nearest neighbour must be below **τ_pool**, so the anchor hasn't drifted onto
    another real person.
 4. **Against the run:** similarity to every earlier subject of the run must be below **τ_run** (0.35 to start).
-   This is the diversity guarantee.
+   This is the diversity guarantee. Built for text-only anchors: `Phantom.Biometrics.FaceGate`.
 5. On failure, re-roll with a new set of faces (`derive_seed(subject.seed, {"face_sources", attempt})`), at most
    5 attempts, then fall back to the text-only anchor. Attempts and scores are recorded on the image and in the
    run report.
@@ -232,9 +234,9 @@ So the go criterion isn't met: no setting both lowers similarity and passes the 
 many faces, by age band and sex, so thin groups are visible (older women in some groups will be scarce).
 
 **Phase 3: In the app.**
-- `Phantom.Biometrics.FacePool`: loads the index and embeddings, selects candidates, runs the gate. The gate
-  runs in `python_inference` (a `/face/embed` endpoint next to `/generate`), since the embeddings and ONNX models
-  live there.
+- `Phantom.Biometrics.FacePool`: loads the index and embeddings, selects candidates, runs the gate. The
+  templates come from `/face/embed` in the CPU biometrics service (`python_biometrics/faces.py`, built for the
+  run gate), with the same models as the pool; the pool check would load the pool's embeddings there too.
 - A run option **Face source: text only / pool**, recorded on the run like `prompt_version`. Default: pool once
   Phase 1 has passed.
 - Storage fields, tests (deterministic selection, filtering, identity exclusion, the gate's re-roll and fallback)
@@ -249,8 +251,9 @@ Worth doing whatever Phase 1 shows:
 
 - **Prompt structure.** Done: `faces-v13` (face first, two features called out). The source-conditioned
   prompt in §5 should keep that structure.
-- **Run diversity gate for text-only anchors.** Step 4 of §6 works without a pool: re-roll the anchor (next seed
-  and features) if it's above 0.35 to an earlier subject.
+- **Run diversity gate for text-only anchors.** Done, 2026-09-27: step 4 of §6 without a pool. An anchor
+  above 0.35 to another subject of the run is rendered again with the next seed and features, up to 5 times
+  ([Face gate](synthetic-biometrics.md#face-gate)).
 - **Identity-first generation.** Sample well-separated identity embeddings (like [HyperFace][hyperface] or
   [Vec2Face][vec2face]) and render them with an identity-conditioned model. The most principled route to
   separation, and the most work.

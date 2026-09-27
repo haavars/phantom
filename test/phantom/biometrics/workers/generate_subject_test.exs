@@ -7,6 +7,7 @@ defmodule Phantom.Biometrics.Workers.GenerateSubjectTest do
   alias Phantom.Biometrics.Workers.GenerateSubject
 
   test "renders the subject" do
+    stub_ridge()
     stub_qwen()
     {:ok, run} = Biometrics.create_run(%{subjects: 1, shots: ["mugshot_frontal"]})
 

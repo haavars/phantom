@@ -470,6 +470,19 @@ defmodule Phantom.Biometrics.FaceAttributes do
     }
   end
 
+  @doc """
+  The same person with other facial features, for a new attempt at an anchor
+  that looked too much like someone else (`Phantom.Biometrics.FaceGate`).
+  Attempt 0 is `attrs` itself; each later one draws a new feature from every
+  group, the same ones for the same seed and attempt. Everything else stays.
+  """
+  def reroll_features(%__MODULE__{} = attrs, 0), do: attrs
+
+  def reroll_features(%__MODULE__{seed: seed} = attrs, attempt) when attempt > 0 do
+    {features, _rng} = features(:rand.seed_s(:exsss, {seed, attempt, 0xFEA7}))
+    %{attrs | features: features}
+  end
+
   @doc "The attributes as a subject stores them: a JSON map with string keys."
   def to_map(%__MODULE__{} = attrs), do: attrs |> Jason.encode!() |> Jason.decode!()
 

@@ -42,9 +42,15 @@ defmodule Phantom.BiometricsFixtures do
   attempts and finger 7 was rejected. Their detected minutiae depend on seed and
   code only, and `POST /match` scores identical templates 250 and others 10, so
   captures of one finger are mated and anything else is not.
+
+  `POST /face/embed` finds one face, with a template that's a different basis
+  vector on every call, so any two anchors score 0 and pass the face gate.
+  Pass `embed: fn -> response end` to return other JSON (built with
+  `face_template/3`), or `{status, body}` for an HTTP error.
   """
   def stub_ridge(opts \\ []) do
     notify = Keyword.get(opts, :notify)
+    embed = Keyword.get(opts, :embed, &stranger/0)
 
     Req.Test.stub(Phantom.Services.Ridgegen, fn conn ->
       case {conn.method, conn.request_path} do
@@ -89,8 +95,40 @@ defmodule Phantom.BiometricsFixtures do
                 do: if(Enum.at(templates, i) == Enum.at(templates, j), do: 250, else: 10)
 
           Req.Test.json(conn, %{scores: scores})
+
+        {"POST", "/face/embed"} ->
+          case embed.() do
+            {status, body} -> conn |> Plug.Conn.put_status(status) |> Req.Test.json(body)
+            body -> Req.Test.json(conn, body)
+          end
       end
     end)
+  end
+
+  defp stranger do
+    axis = rem(System.unique_integer([:positive, :monotonic]), 512)
+    %{faces: 1, det: 0.9, template: face_template(axis)}
+  end
+
+  @doc """
+  A base64 template, as `POST /face/embed` returns it: unit vectors along
+  `axis` (0-511), mixed with `similarity` of `base` when given, so it scores
+  `similarity` against `face_template(base)`.
+  """
+  def face_template(axis, base \\ nil, similarity \\ 0.0) do
+    other = :math.sqrt(1 - similarity * similarity)
+
+    for i <- 0..511, into: <<>> do
+      value =
+        cond do
+          i == base -> similarity
+          i == axis -> if(base, do: other, else: 1.0)
+          true -> 0.0
+        end
+
+      <<value::little-float-32>>
+    end
+    |> Base.encode64()
   end
 
   defp verification_meta(%{"kind" => kind, "code" => code, "seed" => seed})

@@ -24,6 +24,32 @@ defmodule PhantomWeb.BiometricsRunLiveTest do
     refute has_element?(view, "#resume-run")
   end
 
+  test "shows how alike the people's faces are, and each anchor's face gate", %{
+    conn: conn,
+    run: run
+  } do
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
+
+    assert has_element?(view, "#face-report-anchors", "2")
+    assert has_element?(view, "#face-report-passed", "2")
+    assert has_element?(view, "#face-report-pairs", "1 pairs")
+    assert has_element?(view, "#face-report-above-threshold", "0 at or above 0.35")
+    refute has_element?(view, "#quality-report")
+
+    {:ok, view, _html} =
+      live(conn, ~p"/biometrics/#{run}?#{[subject: "subject_002", shot: "mugshot_frontal"]}")
+
+    assert has_element?(view, "#face-gate", "0.0")
+    assert has_element?(view, "#face-gate", "subject_001")
+    assert has_element?(view, "#face-gate", "below 0.35")
+    refute has_element?(view, "#ridge-meta")
+
+    {:ok, view, _html} =
+      live(conn, ~p"/biometrics/#{run}?#{[subject: "subject_002", shot: "mugshot_left_profile"]}")
+
+    refute has_element?(view, "#face-gate")
+  end
+
   test "opens a shot in the detail view and moves between shots", %{conn: conn, run: run} do
     {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}")
 

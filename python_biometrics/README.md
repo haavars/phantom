@@ -15,6 +15,9 @@ It works in two stages, following [`docs/realistic-fingerprints-plan.md`](../doc
 Every finger and slap is then **verified** (`verify.py`) with NIST tools, and re-rendered if the rendering
 drifted from the ground truth.
 
+It also computes **ArcFace templates** of face images (`faces.py`), which the Phoenix app uses to keep the
+people of a run from looking alike (`Phantom.Biometrics.FaceGate`).
+
 Everything it produces is synthetic test data. Each PNG carries `Synthetic=true` text chunks, and the tenprint
 card says so in its header.
 
@@ -42,6 +45,9 @@ cd python_biometrics
 Without the tools the service still renders, unverified. `--diffusion` adds the GPU renderer: CUDA torch and
 `requirements-gpu.txt`, IMPOSE and taming-transformers at pinned commits, and IMPOSE's rolled-print checkpoint
 (about 320 MB, from the authors' Google Drive). `GET /health` lists the renderers that are available.
+
+`setup.sh` also fetches InsightFace's `buffalo_l` face models (about 280 MB) into `~/.insightface`, for
+`/face/embed`.
 
 `mix phx.server` starts `server.py` for you (see `Phantom.Services.PythonProcess`) and stops it on shutdown. To run it
 yourself, set `BIOMETRICS_AUTOSTART=false` for the Phoenix app and start `python server.py` (`PORT` defaults to
@@ -102,6 +108,19 @@ The response is JSON:
 `POST /match` takes `{"templates": [minutiae, ...], "pairs": [[i, j], ...]}`, each template a `detected`
 list, and returns `{"scores": [...]}`: NBIS `bozorth3` scores, one per pair. The Phoenix app uses it for the
 mated and non-mated scores in a run's report.
+
+`POST /face/embed` takes `{"image": <base64 PNG or JPEG>}` and returns the ArcFace template of the largest face
+in it: InsightFace `buffalo_l` (SCRFD detector at 640², ArcFace `w600k_r50`) on the CPU, about 0.15 s for a
+mugshot. The same models as the face pool (`docs/face-pool.md`), so scores compare with it.
+
+| Field | Meaning |
+|---|---|
+| `faces` | how many faces were found; `0` means no other fields |
+| `template` | base64 of 512 little-endian float32, L2-normalised: the cosine similarity of two faces is their dot product |
+| `det`, `bbox`, `eye_dist` | detector confidence, face box `[x1, y1, x2, y2]` and pixels between the eyes |
+| `model` | `buffalo_l/w600k_r50` |
+
+`GET /health` says whether it's available (`"faces": true`).
 
 ## How it works (`ridgegen/`)
 

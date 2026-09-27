@@ -739,7 +739,8 @@ defmodule PhantomWeb.BiometricsRunLive do
         <.progress_bar value={run_fraction(@progress)} />
       </div>
 
-      <.quality_report :if={@run.report && !@focus} report={@run.report} />
+      <.face_report :if={@run.report["faces"] && !@focus} report={@run.report["faces"]} />
+      <.quality_report :if={@run.report["verification"] && !@focus} report={@run.report} />
 
       <div id="subjects" phx-update="stream" class="space-y-4">
         <div
@@ -863,7 +864,16 @@ defmodule PhantomWeb.BiometricsRunLive do
               <% end %>
             </dl>
 
-            <div :if={@selected.record.meta} id="ridge-meta" class="space-y-2 text-xs">
+            <.face_gate_details
+              :if={face_gate(@selected.record)}
+              gate={face_gate(@selected.record)}
+            />
+
+            <div
+              :if={@selected.record.modality == :ridge && @selected.record.meta}
+              id="ridge-meta"
+              class="space-y-2 text-xs"
+            >
               <h3 class="font-medium text-base-content/50">Ground truth</h3>
               <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
                 <%= if pattern = @selected.record.meta["pattern"] do %>

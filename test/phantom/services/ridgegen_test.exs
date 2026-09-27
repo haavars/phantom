@@ -35,6 +35,20 @@ defmodule Phantom.Services.RidgegenTest do
     assert Ridgegen.health() == :unreachable
   end
 
+  test "face_template/1 returns the template of the face in an image, or none" do
+    stub_ridge(embed: fn -> %{faces: 2, det: 0.87, template: face_template(3)} end)
+    assert {:ok, %{faces: 2, det: 0.87, template: template}} = Ridgegen.face_template(png())
+    assert byte_size(template) == 512 * 4
+    assert template == Base.decode64!(face_template(3))
+
+    stub_ridge(embed: fn -> %{faces: 0} end)
+    assert Ridgegen.face_template(png()) == {:ok, %{faces: 0}}
+
+    stub_ridge(embed: fn -> {503, %{detail: "InsightFace isn't installed"}} end)
+    assert {:error, message} = Ridgegen.face_template(png())
+    assert message =~ "HTTP 503"
+  end
+
   test "health/0 is :ready when the service says so" do
     stub_ridge()
     assert Ridgegen.health() == :ready

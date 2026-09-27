@@ -2,17 +2,28 @@ defmodule Phantom.Biometrics.GeneratorTest do
   use Phantom.DataCase, async: true
 
   import Phantom.BiometricsFixtures,
-    only: [stub_ridge: 0, stub_ridge: 1, stub_qwen: 1, render_queued: 0, unique_run_name: 1]
+    only: [
+      stub_ridge: 0,
+      stub_ridge: 1,
+      stub_qwen: 1,
+      render_queued: 0,
+      unique_run_name: 1,
+      face_template: 1,
+      face_template: 3
+    ]
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{Storage, Subject}
+  alias Phantom.Biometrics.{FaceAttributes, Generator, Storage, Subject, Traits}
 
   @anchor_png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "anchor"
   @other_png <<137, 80, 78, 71, 13, 10, 26, 10>> <> "other"
 
   # Replies with @anchor_png for text-only requests and @other_png for
   # image-conditioned ones, and reports each request to the test process.
+  # Every anchor is a stranger to the others (see stub_ridge/1).
   defp stub_faces(test_pid) do
+    stub_ridge()
+
     stub_qwen(
       generate: fn conn ->
         conn =
@@ -138,6 +149,81 @@ defmodule Phantom.Biometrics.GeneratorTest do
     assert image(run, "subject_001", "probe_glasses").prompt == glasses
   end
 
+  test "renders an anchor again with new features when it looks like another person of the run" do
+    stub_faces(self())
+
+    # subject_001 gets axis 0; subject_002 scores 0.6 against it, then 0.1;
+    # rendered again after a resume, 0.1 again.
+    embeddings = [face_template(0), face_template(1, 0, 0.6), face_template(2, 0, 0.1)]
+    embeddings = embeddings ++ [face_template(2, 0, 0.1)]
+    agent = start_supervised!({Agent, fn -> embeddings end})
+
+    stub_ridge(
+      embed: fn ->
+        template = Agent.get_and_update(agent, fn [next | rest] -> {next, rest} end)
+        %{faces: 1, det: 0.9, template: template}
+      end
+    )
+
+    run =
+      generate(%{
+        run: unique_run_name("gate"),
+        seed: 5,
+        subjects: 2,
+        shots: ["mugshot_left_profile"]
+      })
+
+    assert_received {:render, _params, []}
+    assert_received {:render, _params, [@anchor_png]}
+    assert_received {:render, %{"prompt" => rejected}, []}
+    assert_received {:render, %{"prompt" => kept, "seed" => seed}, []}
+    assert_received {:render, _params, [@anchor_png]}
+    refute_received {:render, _params, _references}
+
+    {:ok, subject} = Biometrics.get_subject(run.name, "subject_002")
+    anchor = Enum.find(subject.images, &(&1.shot == "mugshot_frontal"))
+
+    assert anchor.prompt == kept and kept != rejected
+    assert seed == Integer.to_string(anchor.seed)
+    assert anchor.seed == Generator.derive_seed(subject.seed, {"mugshot_frontal", 1})
+    assert anchor.template == Base.decode64!(face_template(2, 0, 0.1))
+
+    assert %{
+             "passed" => true,
+             "similarity" => 0.1,
+             "closest" => "subject_001",
+             "attempts" => 2,
+             "attempt" => 1,
+             "scores" => [0.6, 0.1]
+           } = anchor.meta["gate"]
+
+    # The subject keeps the features of the attempt it kept.
+    sampled = FaceAttributes.sample(subject.seed, Traits.sample_opts(run.traits))
+    rerolled = FaceAttributes.reroll_features(sampled, 1)
+    assert subject.attributes["features"] == rerolled.features
+    assert subject.attributes["features"] != sampled.features
+    assert subject.description == FaceAttributes.describe(rerolled)
+    assert kept =~ FaceAttributes.describe(rerolled)
+
+    assert %{
+             "anchors" => 2,
+             "pairs" => 1,
+             "above_threshold" => 0,
+             "similarity" => %{"max" => 0.1},
+             "gate" => %{"passed_first" => 1, "rerolled" => 1, "failed" => 0, "renders" => 3}
+           } = run.report["faces"]
+
+    # Rendered again from what it kept, once, and only checked.
+    File.rm!(Path.join(Storage.Local.root(), anchor.storage_key))
+    {:ok, _run} = Biometrics.resume_run(run)
+    render_queued()
+
+    assert_received {:render, %{"prompt" => ^kept, "seed" => ^seed}, []}
+    refute_received {:render, _params, []}
+    again = image(run, "subject_002", "mugshot_frontal")
+    assert %{"attempts" => 2, "attempt" => 1, "passed" => true} = again.meta["gate"]
+  end
+
   test "a shot added later matches the same shot rendered with the run" do
     stub_faces(self())
 
@@ -164,6 +250,8 @@ defmodule Phantom.Biometrics.GeneratorTest do
 
   test "renders the low-resolution probe at mugshot size and stores it scaled down" do
     test_pid = self()
+
+    stub_ridge()
 
     # A real RGBA PNG of the requested size, as the face model returns.
     stub_qwen(
@@ -241,6 +329,7 @@ defmodule Phantom.Biometrics.GeneratorTest do
   end
 
   test "skips conditioned shots when the anchor fails" do
+    stub_ridge()
     stub_qwen(generate: &Plug.Conn.send_resp(&1, 500, "boom"))
 
     run =
@@ -370,11 +459,22 @@ defmodule Phantom.Biometrics.GeneratorTest do
     assert length(finger.ground_truth["verification"]["detected"]) == 2
   end
 
-  test "runs without verified images get no report" do
+  test "face-only runs get only the face report, and runs without anchors or verified images none" do
     stub_faces(self())
 
     run =
-      generate(%{run: unique_run_name("no-report"), subjects: 1, shots: ["mugshot_left_profile"]})
+      generate(%{
+        run: unique_run_name("faces-only"),
+        subjects: 1,
+        shots: ["mugshot_left_profile"]
+      })
+
+    assert run.status == :finished
+    assert %{"faces" => %{"anchors" => 1}} = run.report
+    refute Map.has_key?(run.report, "verification")
+
+    stub_ridge()
+    run = generate(%{run: unique_run_name("no-report"), subjects: 1, shots: ["palm_22"]})
 
     assert run.status == :finished
     assert run.report == nil

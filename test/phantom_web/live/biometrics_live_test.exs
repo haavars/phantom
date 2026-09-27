@@ -173,6 +173,10 @@ defmodule PhantomWeb.BiometricsLiveTest do
     assert has_element?(view, "#shot-probe_aged[checked]")
     refute has_element?(view, "#shot-probe_glasses[checked]")
     refute has_element?(view, "#group-rolled[checked]")
+
+    # Faces need the biometrics service too, for the face gate.
+    assert has_element?(view, "#needs-face")
+    assert has_element?(view, "#needs-ridge", "face checks")
   end
 
   test "shows the active run while it renders and cancels it", %{conn: conn} do

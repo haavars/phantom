@@ -342,6 +342,37 @@ defmodule Phantom.Biometrics do
     subject
   end
 
+  @doc """
+  Replaces a subject's `:description` and `:attributes`, when the face gate
+  re-rolled its anchor's features (see `Phantom.Biometrics.FaceGate`).
+  """
+  def update_subject(%Subject{} = subject, attrs) do
+    subject
+    |> Ecto.Changeset.change(Map.take(attrs, [:description, :attributes]))
+    |> Repo.update!()
+  end
+
+  @doc """
+  The ArcFace templates of the rendered anchors of `run`, as
+  `{subject_name, template}`, except the one of the subject given as
+  `:except`.
+  """
+  def anchor_templates(%Run{} = run, opts \\ []) do
+    except = opts[:except] && opts[:except].id
+
+    query =
+      from i in Image,
+        join: s in assoc(i, :subject),
+        where:
+          s.run_id == ^run.id and i.shot == ^FacePrompts.anchor_shot() and i.status == :ok and
+            not is_nil(i.template),
+        order_by: s.position,
+        select: {s.name, i.template}
+
+    query = if except, do: where(query, [_i, s], s.id != ^except), else: query
+    Repo.all(query)
+  end
+
   @doc "Records the result of rendering a shot, replacing an earlier attempt at it."
   def save_image(%Subject{} = subject, attrs) do
     result =
@@ -482,14 +513,19 @@ defmodule Phantom.Biometrics do
   @doc "Health of the services that render faces and friction ridges."
   def service_status, do: %{face: Qwen.health(), ridge: Ridgegen.health()}
 
-  @doc "`:ok` when the services `shots` need are ready, else `{:error, message}`."
+  @doc """
+  `:ok` when the services `shots` need are ready, else `{:error, message}`.
+  Face shots need the biometrics service too, for the anchor's face gate.
+  """
   def check_services(shots) do
+    faces? = Enum.any?(shots, &Shots.face?/1)
+
     cond do
-      Enum.any?(shots, &Shots.face?/1) and Qwen.health() != :ready ->
+      faces? and Qwen.health() != :ready ->
         {:error, "The Qwen-Image-2.1 service isn't ready."}
 
-      Enum.any?(shots, &Shots.ridge?/1) and Ridgegen.health() != :ready ->
-        {:error, "The friction-ridge service isn't ready."}
+      (faces? or Enum.any?(shots, &Shots.ridge?/1)) and Ridgegen.health() != :ready ->
+        {:error, "The biometrics service isn't ready."}
 
       true ->
         :ok
