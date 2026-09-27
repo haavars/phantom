@@ -2,7 +2,8 @@
 
 Status: Phase 1 done 2026-09-25, go criterion not met (§7). The run diversity gate from §8 is built for
 text-only anchors (2026-09-27, [Face gate](synthetic-biometrics.md#face-gate)); the pool (`face-pool.md`) stays
-for a later attempt.
+for a later attempt. An identity-first pilot (Arc2Face identities as Qwen's reference, §8) gave anchors about as
+far apart as real strangers.
 
 ## 1. Goal and idea
 
@@ -258,6 +259,45 @@ Worth doing whatever Phase 1 shows:
   [Vec2Face][vec2face]) and render them with an identity-conditioned model. The most principled route to
   separation, and the most work.
 
+  *Pilot, 2026-09-27: [Arc2Face][arc2face] identities as Qwen's only reference.* Text alone can't do it: one
+  prompt with 8 seeds gives the same man (median 0.53, see
+  [Face diversity](synthetic-biometrics.md#face-diversity)). So the identity comes first:
+
+  1. Embed FairFace's 3,246 frontal adult White men with Arc2Face's own ArcFace (WebFace42M, not `buffalo_l`),
+     fit a Gaussian (mean and covariance) and sample 12 identities from it, each below 0.1 to the others and
+     below 0.3 to every pool face (in that space).
+  2. Render each with Arc2Face (Stable Diffusion 1.5, 25 steps, guidance 3; about 1 s on the 4090): a 512² face
+     from the embedding alone.
+  3. Render the anchor with Qwen and that face as the only reference, prompted as an edit: keep the face,
+     change age, skin, eyes, hair, beard and clothing to the subject's (subjects 1–12 of the face-gate run),
+     no glasses or hat, neutral, the booking setup. No feature list.
+
+  Measured with `buffalo_l` against the same 12 subjects rendered text-only:
+
+  | | Between people, median / p90 / max | Pairs ≥ 0.3 | Nearest FairFace face |
+  |---|---|---|---|
+  | Text-only `faces-v13` (before the gate) | 0.21 / 0.33 / 0.59 | 14 / 66 | – |
+  | Arc2Face faces | 0.03 / 0.14 / 0.21 | 0 / 66 | 0.25–0.30 |
+  | **Qwen anchors from them** | **0.08 / 0.20 / 0.28** | **0 / 66** | **0.24–0.29** |
+  | Real White men (FairFace) | 0.01 / 0.09 / about 0.17 | about 0 | median 0.30 |
+
+  - **The spread is close to real strangers**, from sampling the identities apart, not from what Qwen draws.
+    The gate would have nothing to reject.
+  - **The anchor keeps some of its identity, not all:** 0.31–0.78 to its Arc2Face face (median 0.54), and at
+    most 0.17 to any other identity. That's what makes it a new person, not a copy of a synthetic one.
+  - **No leakage:** each anchor's nearest real FairFace face is 0.24–0.29, where a real man's nearest stranger
+    is (median 0.30).
+  - **Realistic booking photos** with Qwen's setup, age, hair and clothing, though framed tighter than
+    text-only anchors: Qwen copies the reference's close-up. Pad the reference to the mugshot's framing, or
+    say how large the head is.
+  - Arc2Face's own images are web snapshots (glasses, hats, grins, odd light); Qwen cleans that up. A few
+    faces carry over a strained look (identity 6).
+  - Arc2Face's code and weights are MIT; it was trained on WebFace42M, a research-only set of web-scraped
+    faces. Fine for Phantom, which is research; the leakage check against the pool stays.
+
+  Next, if this goes in: the framing, other groups and women (a Gaussian per group and sex from FairFace),
+  ages, and the profiles and probes conditioned on these anchors.
+
 ## 9. Open questions
 
 - Does blending k faces give a *new* face, or an average one? If k = 5 converges on a "mean face", diversity
@@ -279,3 +319,4 @@ Worth doing whatever Phase 1 shows:
 [onot]: https://arxiv.org/abs/2404.11236
 [hyperface]: https://arxiv.org/pdf/2411.08470
 [vec2face]: https://github.com/HaiyuWu/Vec2Face
+[arc2face]: https://github.com/foivospar/Arc2Face

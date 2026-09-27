@@ -492,7 +492,9 @@ man every time, at most a brother: median 0.53 between seeds (0.43–0.77), wher
 the two prompts, 0.30. So the seed adds almost no identity, and all of it has to come from the text, which
 Qwen maps onto a narrow range of faces: seven prompt variants (v11–v13 above) moved the mean only from 0.24 to
 0.17. Wording is close to what it can give. The remaining routes are rejecting look-alikes ([face
-gate](#face-gate)) and identity-first generation ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8).
+gate](#face-gate)) and identity-first generation. A pilot of the latter, with a sampled Arc2Face identity as the
+anchor's reference, brought the median between the same 12 people from 0.21 to 0.08, with none at 0.3
+([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8).
 
 ### Face gate
 
