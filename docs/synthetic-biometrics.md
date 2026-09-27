@@ -487,6 +487,13 @@ pool's ArcFace templates):
 - FairFace is uncontrolled web photos; the same capture setup for every mugshot may account for part of the gap.
   A studio set (Chicago Face DB) would be the fairer baseline.
 
+**One prompt is one person.** The same anchor prompt with 8 seeds (subjects 2 and 5 of that run) gives the same
+man every time, at most a brother: median 0.53 between seeds (0.43–0.77), where 0.4 is already a match. Between
+the two prompts, 0.30. So the seed adds almost no identity, and all of it has to come from the text, which
+Qwen maps onto a narrow range of faces: seven prompt variants (v11–v13 above) moved the mean only from 0.24 to
+0.17. Wording is close to what it can give. The remaining routes are rejecting look-alikes ([face
+gate](#face-gate)) and identity-first generation ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8).
+
 ### Face gate
 
 `Phantom.Biometrics.FaceGate` compares every new anchor with the anchors already rendered in its run, and
