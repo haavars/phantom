@@ -467,6 +467,25 @@ faces from open datasets didn't help: Qwen copies one reference instead of blend
 ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md), Phase 1). So the run keeps its people
 apart with a gate instead.
 
+**How far from real faces, and is it the ancestry label?** Checked 2026-09-27 on the 12 Northern European men of
+the first [face gate](#face-gate) run, first attempts (before the gate), against FairFace (real photos, the face
+pool's ArcFace templates):
+
+| Faces | Median | p90 | Max of 12 people | Pairs ≥ 0.3 of 66 |
+|---|---|---|---|---|
+| Real White men (FairFace, 3,246 frontal adults) | 0.01 | 0.09 | about 0.17 | about 0 |
+| `faces-v13` | 0.21 | 0.33 | 0.59 | 14 |
+| `faces-v13` without "He is of Northern European descent" | 0.22 | 0.34 | 0.56 | 16 |
+
+- **The gap is large:** two real men of one group score about 0.01; ours about 0.22. The other FairFace groups
+  are the same, 0.01–0.05 by group and sex.
+- **The ancestry label isn't the cause.** Without it, Qwen draws almost the same faces: each subject scores
+  0.90–0.99 against himself with the label, three 0.67–0.75, still clearly the same person. Skin, eye and hair
+  colour, age and the features fix the face; the seed does the rest. (Only tested on one ancestry, where the
+  colours already say where someone is from.)
+- FairFace is uncontrolled web photos; the same capture setup for every mugshot may account for part of the gap.
+  A studio set (Chicago Face DB) would be the fairer baseline.
+
 ### Face gate
 
 `Phantom.Biometrics.FaceGate` compares every new anchor with the anchors already rendered in its run, and
