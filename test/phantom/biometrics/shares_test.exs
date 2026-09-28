@@ -72,7 +72,13 @@ defmodule Phantom.Biometrics.SharesTest do
       Biometrics.share_subject(subject, "nist", %{"content" => "prints", "compression" => "png"})
 
     assert share.filename == "#{code}_enrol.an2"
-    assert share.options == %{"content" => "prints", "compression" => "png", "search" => []}
+
+    assert share.options == %{
+             "content" => "prints",
+             "compression" => "png",
+             "target" => "ansi_nist",
+             "search" => []
+           }
 
     stub_bucket()
     assert :ok = perform_job(UploadShare, %{share_id: share.id})

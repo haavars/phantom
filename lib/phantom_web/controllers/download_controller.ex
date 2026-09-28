@@ -30,12 +30,12 @@ defmodule PhantomWeb.DownloadController do
   end
 
   @doc """
-  `GET /biometrics/:run/:subject/nist/download?content=&compression=&search[]=`:
+  `GET /biometrics/:run/:subject/nist/download?content=&compression=&target=&search[]=`:
   the subject as ANSI/NIST-ITL transactions, one `.an2` file, or a ZIP when
   there are search transactions too.
   """
   def nist(conn, %{"run" => run, "subject" => subject} = params) do
-    opts = Map.take(params, ["content", "compression", "search"])
+    opts = Map.take(params, ["content", "compression", "target", "search"])
 
     case Biometrics.nist_export(run, subject, opts) do
       {:ok, export} ->

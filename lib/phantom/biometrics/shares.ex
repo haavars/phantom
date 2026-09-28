@@ -91,6 +91,8 @@ defmodule Phantom.Biometrics.Shares do
     %{
       "content" => options["content"],
       "compression" => options["compression"],
+      "target" =>
+        if(options["target"] in NistExport.targets(), do: options["target"], else: "ansi_nist"),
       "search" => options["search"] |> List.wrap() |> Enum.reject(&(&1 in [nil, ""]))
     }
   end

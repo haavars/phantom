@@ -20,7 +20,8 @@ defmodule Phantom.Nist.Type1 do
 
   `opts`: `:tot` (1.004, up to 16 letters), `:date` (1.005, a `Date`), `:dai`
   and `:ori` (1.007/1.008), `:tcn` (1.009), and optionally `:domain`, a
-  `{name, version}` for 1.013 DOM.
+  `{name, version}` for 1.013 DOM, and `:version` for 1.002 VER (default
+  `0502`, Update:2015), which must fit the domain.
   """
   @spec build([{pos_integer(), non_neg_integer()}], keyword()) :: %{
           type: 1,
@@ -30,7 +31,7 @@ defmodule Phantom.Nist.Type1 do
   def build(record_pairs, opts) when is_list(record_pairs) do
     fields =
       [
-        {2, @version},
+        {2, opts[:version] || @version},
         {3, cnt(record_pairs)},
         {4, Keyword.fetch!(opts, :tot)},
         {5, Field.date(Keyword.fetch!(opts, :date))},

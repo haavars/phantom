@@ -1,5 +1,9 @@
 # Importing the Phantom `.an2` files into Unify 5.2 — required changes
 
+Status, 2026-09-28: the NIST export page's **Unify 5.2** target does the blocking changes, with the ICD values
+as settings that still hold placeholders; see [`nist-export-plan.md`](nist-export-plan.md) §7 and the checklist
+in §7 below.
+
 Analysis of the synthetic enrolment files produced by Phantom against the Unify
 ABIS API, version 5.2 (`prum_docs/biometrics/abis/api_5.2/api_v1.yaml`).
 
@@ -252,30 +256,34 @@ attributes. Wrong values give misleading test data.
 
 Blocking:
 
-- [ ] Re-encode 17 print and palm images as WSQ 2.0 (`.011 = WSQ20`), or as
+- [x] Re-encode 17 print and palm images as WSQ 2.0 (`.011 = WSQ20`), or as
       JPEG 2000 if the ICD says so.
-- [ ] Re-encode 3 face images as JPEG (`10.011 = JPEGB`) or JPEG 2000.
-- [ ] Recompute `.001 LEN` on every changed record.
-- [ ] Handle FGP 15: drop it, or split it into FGP 11 and 12.
-- [ ] Handle PLP 21 and 23: drop them, or split them into 25/26 and 27/28.
-- [ ] Rewrite `1.003 CNT` to match the final record set.
+- [x] Re-encode 3 face images as JPEG (`10.011 = JPEGB`) or JPEG 2000.
+- [x] Recompute `.001 LEN` on every changed record.
+- [x] Handle FGP 15: drop it, or split it into FGP 11 and 12. *Split.*
+- [x] Handle PLP 21 and 23: drop them, or split them into 25/26 and 27/28. *Split.*
+- [x] Rewrite `1.003 CNT` to match the final record set.
 - [ ] Set `1.004 TOT` to an enrolment TOT configured for the calling system.
+      *A setting (`UNIFY_TOT_ENROL`); the value awaits the ICD.*
 
 Depends on the ICD:
 
 - [ ] Set `1.007 DAI`, `1.008 ORI` and `.004 SRC` to real test-environment ORIs.
+      *Settings (`UNIFY_DAI`, `UNIFY_ORI`); values await the ICD.*
 - [ ] Set `1.013 DOM` to the ICD domain and version, and check that
-      `1.002 VER` fits it.
+      `1.002 VER` fits it. *Settings (`UNIFY_DOMAIN`, `UNIFY_DOMAIN_VERSION`, `UNIFY_VERSION`).*
 - [ ] Produce `1.009 TCN` in the ICD format, unique for each submission.
 - [ ] Rebuild the Type-2 record with the ICD's enrolment fields, and move the
       Phantom provenance elsewhere.
-- [ ] Remove `14.901` and `15.901`, unless the ICD defines them.
+- [x] Remove `14.901` and `15.901`, unless the ICD defines them.
 
 Recommended:
 
-- [ ] Make the palm IMP consistent with the finger IMP (use `10` for
-      live-scan palms).
-- [ ] Set `10.013 SAP` to a mugshot profile.
+- [x] Make the palm IMP consistent with the finger IMP (use `10` for
+      live-scan palms). *All ink by default (3, 2, 11), or all live-scan
+      (1, 0, 10) with `UNIFY_CAPTURE=livescan`.*
+- [x] Set `10.013 SAP` to a mugshot profile. *30, with the mugshots cut to
+      SAP 30's 4:5; `UNIFY_FACE_SAP` changes it.*
 - [ ] Add `14.021 SEG` to the slaps, and `10.026 SXS` to the faces.
 
 ---

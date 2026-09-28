@@ -1,7 +1,8 @@
 # Plan: ANSI/NIST-ITL export (`.an2`)
 
 Status: phase 1 built, 2026-09-25. A person's page has **Download → NIST (.an2)**, which opens the export page
-at `/biometrics/<run>/<subject>/nist`.
+at `/biometrics/<run>/<subject>/nist`. A Unify 5.2 target (§7) built 2026-09-28; its ICD values are still
+placeholders, and no file has been loaded into Unify yet.
 
 ## 1. Goal and decisions
 
@@ -85,11 +86,13 @@ Decisions made:
 |---|---|
 | `Phantom.Nist.Record`, `File`, `Field` | Record framing, transaction join and decode (from abis_next) |
 | `Phantom.Nist.Type1`, `Type2`, `Type10`, `Type14`, `Type15` | Record builders |
-| `Phantom.Biometrics.NistImages` | PNG / WSQ for prints, alpha flattening for faces, NBIS tool paths |
+| `Phantom.Biometrics.NistImages` | PNG / WSQ for prints, crops, alpha flattening and JPEG for faces, NBIS tool paths |
 | `Phantom.Biometrics.NistExport` | Plans the transactions, streams them, the README |
+| `Phantom.Biometrics.NistParts` | The records a print becomes: whole, or split for the Unify target |
+| `Phantom.Biometrics.Unify` | The Unify target's ICD settings (`UNIFY_*`) and IMP codes |
 | `Phantom.Biometrics.nist_export/3` | Context function |
 | `PhantomWeb.NistExportLive` | The export page |
-| `PhantomWeb.DownloadController.nist/2` | `GET /biometrics/:run/:subject/nist/download?content=&compression=&search[]=` |
+| `PhantomWeb.DownloadController.nist/2` | `GET /biometrics/:run/:subject/nist/download?content=&compression=&target=&search[]=` |
 
 ## 5. Verification
 
@@ -117,4 +120,56 @@ Decisions made:
    and Phantom's angles point about 180° from ANSI/INCITS 378, so they need converting, with a test against
    `mindtct`'s detected minutiae.
 5. **Faces as JPEG** (`JPEGB`) for receivers that don't take PNG, and SAP levels with their composition rules.
+   JPEG is done for the Unify target (§7).
 6. **Slap segmentation** (14.021 SEG) and NFIQ 2 scores (14.024 FQM), which Phantom already computes.
+
+## 7. Unify 5.2 target
+
+The export page's **Target** choice: **ANSI/NIST-ITL** is everything above, **Unify 5.2** makes files Unify's
+API accepts. What Unify needs, and why, is in [`phantom_an2_unify_import.md`](phantom_an2_unify_import.md)
+(from Unify's API spec, `api_v1.yaml`; the project ICD isn't available yet).
+
+| | ANSI/NIST-ITL | Unify 5.2 |
+|---|---|---|
+| Prints and palms | PNG or WSQ | WSQ only (`WSQ20`) |
+| Faces | PNG | Baseline JPEG (`JPEGB`, quality 90), `SRGB` |
+| Mugshots | 960 × 1280, SAP 20 | Cut to 960 × 1200 (4:5, SAP 30's aspect) from the bottom, SAP from settings (30) |
+| Two thumbs, FGP 15 | as rendered | Plain thumbs FGP 11 (right) and 12 (left), 500 × 1000 each |
+| Full palms, PLP 21/23 | as rendered | Upper and lower palms, PLP 26/25 (right), 28/27 (left) |
+| 14.003 / 15.003 IMP | Update:2015: `1` rolled, `0` plain, `11` palm | Base codes, all one capture type: ink `3`/`2`/`11` (default) or live-scan `1`/`0`/`10` |
+| 14.901 / 15.901 FCT | `2` | Left out |
+| TOT, DAI, ORI and SRC, DOM, VER | `ENROL`/`SEARCH`, `PHANTOM`, `0502` | From settings |
+| Type-2 | Phantom's layout | The same for now, with 2.005 the TOT |
+
+**Splitting** (`NistParts`), within the standard's size limits:
+
+- **Two thumbs:** the slap has one thumb in each half (the left thumb on the left, in every ridgegen slap
+  checked). Each becomes the largest plain-thumb image allowed, 1.0 × 2.0 in (500 × 1000 px), centred on the
+  thumb's ground-truth minutiae, from 100 px above the topmost. A tighter box cut ridges off: they reach well
+  past the outermost minutiae. A thumb wider than 1 in loses a little of its edge.
+- **Full palms:** cut halfway between the lowest interdigital triradius (`a`–`d`) and `t`, each part running
+  0.5 in past the cut (so they overlap by an inch), at most 5.5 × 5.5 in. On a real right palm: upper 2750 ×
+  2488, lower 2750 × 2012.
+- Without ground truth: the slap's halves, and the palm's middle.
+
+**Settings** (`Phantom.Biometrics.Unify`, from `UNIFY_*` variables or `.env`): `UNIFY_TOT_ENROL`,
+`UNIFY_TOT_SEARCH`, `UNIFY_DAI`, `UNIFY_ORI`, `UNIFY_DOMAIN`, `UNIFY_DOMAIN_VERSION`, `UNIFY_VERSION`,
+`UNIFY_FACE_SAP` and `UNIFY_CAPTURE` (`ink` or `livescan`). TOT, DAI, ORI and DOM default to placeholders
+Unify won't accept, and the page names the ones still unset.
+
+Ink is the default capture type because Phantom's prints look inked (the diffusion renderer knows only inked
+rolled prints) and the ANSI/NIST export already says ink in 14.901. The analysis suggested live-scan palms
+instead; either way all prints and palms now share one type.
+
+**Verification:** unit tests for the splits and settings; an export test with real images decodes every record
+(positions, WSQ, JPEG, IMP, no 901, CNT); a page test for the target. A real subject (3 faces, 10 rolled, 3
+slaps, 4 palms) exported to 3.2 MB, against 33 MB as PNG: 23 image records, which NBIS `an2ktool` reads
+without errors; the crops decode with `dwsq` and look right.
+
+**Still to do for Unify:**
+
+1. The ICD's values in `.env`: TOT, DAI, ORI, DOM and VER; then the TCN format (INT-I-style profiles want a
+   check character) and the Type-2 field set, with Phantom's provenance moved to a field the ICD allows.
+2. Load a file into a Unify test instance through `POST /transactions/enroll/nist`, and watch for a rejection
+   in the `stateChangeCallback`.
+3. Optional: 14.021 SEG for the slaps (Unify can segment them itself), 10.026 SXS for beards.

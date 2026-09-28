@@ -3,7 +3,8 @@ defmodule PhantomWeb.NistExportLive do
   `/biometrics/:run/:subject/nist`: export one subject as ANSI/NIST-ITL
   transactions (`Phantom.Biometrics.NistExport`). Choose what the enrolment
   holds (prints and face, prints only, face only), which face probes to add
-  as search transactions, and PNG or WSQ for the prints. The page lists the
+  as search transactions, the target (the ANSI/NIST base standard, or Unify
+  5.2) and, for the base standard, PNG or WSQ for the prints. The page lists the
   files and records the download will have; the download itself is
   `PhantomWeb.DownloadController.nist/2`. With a bucket configured, the same
   export can be shared as a link (`Phantom.Biometrics.Shares`).
@@ -14,13 +15,29 @@ defmodule PhantomWeb.NistExportLive do
   import PhantomWeb.BiometricsComponents
 
   alias Phantom.Biometrics
-  alias Phantom.Biometrics.{Gallery, NistExport, NistImages, Shots}
+  alias Phantom.Biometrics.{Gallery, NistExport, NistImages, Shots, Unify}
 
   @contents [
     {"prints_faces", "Prints and face", "Mugshots with the rolled fingers, slaps and palms"},
     {"prints", "Prints only", "Rolled fingers, slaps and palms"},
     {"faces", "Face only", "The mugshot set: frontal, profiles and ¾ views"}
   ]
+
+  @targets [
+    {"ansi_nist", "ANSI/NIST-ITL",
+     "The base standard: PNG or WSQ prints, PNG faces, every position as rendered"},
+    {"unify", "Unify 5.2",
+     "WSQ prints, JPEG faces; two thumbs and full palms split into positions Unify takes"}
+  ]
+
+  # What each Unify setting is, for the placeholder warning.
+  @unify_labels %{
+    tot_enrol: "enrolment TOT",
+    tot_search: "search TOT",
+    dai: "DAI",
+    ori: "ORI",
+    domain: "DOM"
+  }
 
   @probe_hints %{
     "probe_aged" => "The same person 15 years older",
@@ -50,6 +67,7 @@ defmodule PhantomWeb.NistExportLive do
          |> assign(:choices, NistExport.choices(subject))
          |> assign(:wsq?, NistImages.wsq_available?())
          |> assign(:contents, @contents)
+         |> assign(:targets, @targets)
          |> assign(:probe_hints, @probe_hints)
          |> assign_options(%{})}
 
@@ -72,6 +90,7 @@ defmodule PhantomWeb.NistExportLive do
     params = %{
       "content" => options.content,
       "compression" => options.compression,
+      "target" => options.target,
       "search" => options.search
     }
 
@@ -108,11 +127,17 @@ defmodule PhantomWeb.NistExportLive do
     content =
       if params["content"] in NistExport.contents(), do: params["content"], else: "prints_faces"
 
+    target = if params["target"] == "unify", do: "unify", else: "ansi_nist"
+
     compression =
-      if params["compression"] == "wsq" and socket.assigns.wsq?, do: "wsq", else: "png"
+      cond do
+        target == "unify" -> "wsq"
+        params["compression"] == "wsq" and socket.assigns.wsq? -> "wsq"
+        true -> "png"
+      end
 
     search = params |> Map.get("search", []) |> List.wrap() |> Enum.reject(&(&1 == ""))
-    options = %{content: content, compression: compression, search: search}
+    options = %{content: content, compression: compression, target: target, search: search}
 
     export =
       case NistExport.new(socket.assigns.subject, options) do
@@ -122,30 +147,49 @@ defmodule PhantomWeb.NistExportLive do
 
     socket
     |> assign(:options, options)
-    |> assign(:form, to_form(%{"content" => content, "compression" => compression}, as: :nist))
+    |> assign(
+      :form,
+      to_form(%{"content" => content, "compression" => compression, "target" => target},
+        as: :nist
+      )
+    )
     |> assign(:export, export)
+    |> assign(:unset, if(target == "unify", do: Unify.placeholders(), else: []))
   end
 
   defp download_path(run, subject, options) do
-    query = [content: options.content, compression: options.compression, search: options.search]
+    query = [
+      content: options.content,
+      compression: options.compression,
+      target: options.target,
+      search: options.search
+    ]
+
     ~p"/biometrics/#{run.name}/#{subject.name}/nist/download?#{query}"
   end
 
-  # Estimated size of a transaction: stored PNGs, or WSQ at 0.75 bits per pixel for prints.
-  defp estimate(transaction, compression) do
+  # Estimated size of a transaction: stored PNGs, WSQ at 0.75 bits per pixel
+  # for prints, and about 2 bits per pixel for JPEG faces.
+  defp estimate(transaction, export) do
     Enum.sum_by(transaction.images, fn image ->
-      if compression == "wsq" and image.modality == :ridge,
-        do: div((image.width || 0) * (image.height || 0) * 3, 32),
-        else: image.byte_size || 0
+      pixels = (image.width || 0) * (image.height || 0)
+
+      cond do
+        export.compression == "wsq" and image.modality == :ridge -> div(pixels * 3, 32)
+        export.target == "unify" and image.modality == :face -> div(pixels, 4)
+        true -> image.byte_size || 0
+      end
     end)
   end
 
-  defp record_counts(transaction) do
+  defp record_counts(transaction, target) do
     transaction.images
-    |> NistExport.records()
+    |> NistExport.records(target)
     |> Enum.frequencies_by(& &1.type)
     |> Enum.sort()
   end
+
+  defp unset_labels(unset), do: Enum.map_join(unset, ", ", &@unify_labels[&1])
 
   defp record_name(10), do: "face"
   defp record_name(14), do: "fingerprint"
@@ -282,7 +326,60 @@ defmodule PhantomWeb.NistExportLive do
               </p>
             </section>
 
-            <section id="compression" class="space-y-3">
+            <section id="target" class="space-y-3">
+              <div>
+                <h2 class="text-sm font-semibold">Target</h2>
+                <p class="text-xs text-base-content/60">
+                  What the files are made for: the standard as it is, or what Unify accepts.
+                </p>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <label
+                  :for={{value, title, hint} <- @targets}
+                  for={"nist_target_#{value}"}
+                  class={[
+                    "flex cursor-pointer flex-col gap-1 rounded-xl border border-base-300 p-3 transition hover:border-primary/40",
+                    "has-[:checked]:border-primary/60 has-[:checked]:bg-primary/5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary"
+                  ]}
+                >
+                  <span class="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      id={"nist_target_#{value}"}
+                      name="nist[target]"
+                      value={value}
+                      checked={@options.target == value}
+                      class="size-4 shrink-0 accent-[var(--color-primary)]"
+                    />
+                    <span class="text-sm font-medium">{title}</span>
+                  </span>
+                  <span class="text-xs text-base-content/60">{hint}</span>
+                </label>
+              </div>
+              <p
+                :if={@options.target == "unify" and !@wsq?}
+                id="unify-needs-wsq"
+                class="flex gap-1.5 text-xs text-warning"
+              >
+                <.icon name="hero-exclamation-triangle-micro" class="mt-px size-3.5 shrink-0" />
+                Unify needs WSQ prints, which need NIST's cwsq: run
+                <span class="font-mono">python_biometrics/setup.sh</span>
+              </p>
+              <p
+                :if={@unset != []}
+                id="unify-placeholders"
+                class="flex gap-1.5 text-xs text-warning"
+              >
+                <.icon name="hero-exclamation-triangle-micro" class="mt-px size-3.5 shrink-0" />
+                <span>
+                  Still placeholders, which Unify won't accept: {unset_labels(@unset)}. Set them from the
+                  ICD with the <span class="font-mono">UNIFY_*</span>
+                  variables (see <span class="font-mono">Phantom.Biometrics.Unify</span>).
+                </span>
+              </p>
+            </section>
+
+            <section :if={@options.target == "ansi_nist"} id="compression" class="space-y-3">
               <div>
                 <h2 class="text-sm font-semibold">Compression</h2>
                 <p class="text-xs text-base-content/60">
@@ -344,7 +441,7 @@ defmodule PhantomWeb.NistExportLive do
                     <div class="flex items-baseline justify-between gap-2">
                       <span class="truncate font-mono text-xs font-medium">{transaction.filename}</span>
                       <span class="shrink-0 text-[11px] tabular-nums text-base-content/50">
-                        ≈ {format_bytes(estimate(transaction, @export.compression))}
+                        ≈ {format_bytes(estimate(transaction, @export))}
                       </span>
                     </div>
                     <p class="mt-0.5 text-xs text-base-content/65">
@@ -353,9 +450,9 @@ defmodule PhantomWeb.NistExportLive do
                         else: "Search: #{Shots.label(transaction.probe)}"}
                     </p>
                     <p class="mt-1 text-[11px] text-base-content/50">
-                      Type-1, Type-2<span :for={{type, n} <- record_counts(transaction)}>, {n} × Type-{type} {record_name(
-                        type
-                      )}</span>
+                      Type-1, Type-2<span :for={
+                        {type, n} <- record_counts(transaction, @export.target)
+                      }>, {n} × Type-{type} {record_name(type)}</span>
                     </p>
                   </li>
                 </ul>

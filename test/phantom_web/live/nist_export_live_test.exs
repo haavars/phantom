@@ -56,7 +56,7 @@ defmodule PhantomWeb.NistExportLiveTest do
 
     assert has_element?(
              view,
-             ~s(#nist-download[href="/biometrics/#{run}/subject_001/nist/download?compression=png&content=prints_faces"]),
+             ~s(#nist-download[href="/biometrics/#{run}/subject_001/nist/download?compression=png&content=prints_faces&target=ansi_nist"]),
              "Download .an2"
            )
   end
@@ -94,6 +94,41 @@ defmodule PhantomWeb.NistExportLiveTest do
       assert has_element?(view, "#file-search_aged")
     else
       assert has_element?(view, "#wsq-unavailable")
+    end
+  end
+
+  test "the Unify target: WSQ only, split records, and which ICD values are unset", %{
+    conn: conn,
+    run: run
+  } do
+    run_with_palms = create_run(subjects: 1, shots: ["slaps", "palms"])
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run_with_palms}/subject_001/nist")
+
+    assert has_element?(view, "#nist_target_ansi_nist[checked]")
+    assert has_element?(view, "#compression")
+    assert has_element?(view, "#file-enrol", "3 × Type-14 fingerprint, 4 × Type-15 palm")
+    refute has_element?(view, "#unify-placeholders")
+
+    view |> form("#nist-form", nist: %{target: "unify"}) |> render_change()
+
+    assert has_element?(view, "#nist_target_unify[checked]")
+    refute has_element?(view, "#compression")
+    # The two thumbs and both full palms are two records each.
+    assert has_element?(view, "#file-enrol", "4 × Type-14 fingerprint, 6 × Type-15 palm")
+    assert has_element?(view, "#unify-placeholders", "enrolment TOT")
+    assert view |> element("#nist-download") |> render() =~ "compression=wsq"
+    assert view |> element("#nist-download") |> render() =~ "target=unify"
+
+    if !NistImages.wsq_available?(), do: assert(has_element?(view, "#unify-needs-wsq"))
+
+    # The target is kept when sharing.
+    {:ok, view, _html} = live(conn, ~p"/biometrics/#{run}/subject_001/nist")
+    view |> form("#nist-form", nist: %{target: "unify"}) |> render_change()
+
+    if Biometrics.sharing_enabled?() and NistImages.wsq_available?() do
+      view |> element("#nist-share") |> render_click()
+      {:ok, subject} = Biometrics.get_subject(run, "subject_001")
+      assert [%{options: %{"target" => "unify"}}] = Biometrics.list_shares(subject)
     end
   end
 
