@@ -330,9 +330,38 @@ Worth doing whatever Phase 1 shows:
     Age matters a little (correlation −0.24). An anchor that loses its identity falls back towards Qwen's own
     face, so at scale those would look alike again.
 
-  So the method works if the references are clean: frontal, neutral, no accessories. Next to test: Arc2Face's
-  pose ControlNet and expression adapter (both in its repository), or a Qwen edit that cleans the reference
-  first; then women and other groups, and the profiles and probes conditioned on these anchors.
+  So the method works if the references are clean: frontal, neutral, no accessories.
+
+  *Third round, 2026-09-28: clean the reference with a Qwen edit first.* The same 24 picks, each edited by Qwen
+  into a frontal, neutral close-up on mid-grey (same man, age, hair and skin; no glasses or hat, mouth closed,
+  colour-neutral light), then used for the anchor exactly as before (same prompt, framing and seeds).
+
+  - **The edit keeps the identity and fixes the flaws.** Cleaned faces keep 0.84 of their Arc2Face face
+    (median, range 0.56–0.97), and 23 of 24 pass the pool's rules, against 8 of 24 raw picks. The caps,
+    glasses, grins, turned heads and colour casts are gone.
+  - **Anchors from flawed references recover:**
+
+    | 24 anchors | Raw reference | Cleaned reference |
+    |---|---|---|
+    | Between people, median / p90 / max | 0.08 / 0.19 / 0.29 | 0.07 / 0.17 / 0.29, no pair at 0.3 |
+    | Identity kept, median (min) | 0.60 (0.04) | 0.59 (0.21) |
+    | Identity kept, 16 flawed references / 8 clean ones (median) | 0.45 / 0.68 | 0.56 / 0.70 |
+    | Anchors keeping less than 0.4 | 8 | 2 |
+    | Pass the pool's rules | 23 | 23 |
+    | Nearest FairFace face, median / max | 0.25 / 0.31 | 0.26 / 0.34 |
+    | Estimated age minus age, median | +9 | +8 |
+
+    From the cleaned face, the anchor keeps about 0.8 of it (median). The overall median doesn't move: the
+    edit costs a little on references that were fine, and the gain is at the bottom (identity 2: 0.04 → 0.21,
+    13: 0.26 → 0.54, 24: 0.34 → 0.64).
+  - **Two stay weak:** identities 2 (0.21) and 5 (0.30), both young references made into men of 73 and 68.
+    Probably the age change rather than the cleaning; not tested yet.
+  - Costs one more Qwen render per subject (about 44 s on the 4090).
+
+  So cleaning is the step to keep. Next to test: whether a large age gap between reference and subject is what
+  loses the identity (and if so, match the identity's apparent age to the subject's, or age the reference in
+  the cleaning edit); then women and other groups, and the profiles and probes conditioned on these anchors.
+  Arc2Face's pose ControlNet and expression adapter are the alternative to the cleaning edit, not needed so far.
 
 ## 9. Open questions
 
