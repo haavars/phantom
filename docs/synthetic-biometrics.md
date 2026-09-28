@@ -468,6 +468,16 @@ faces from open datasets didn't help: Qwen copies one reference instead of blend
 ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md), Phase 1). So the run keeps its people
 apart with a gate instead.
 
+**To look into: every face is unusual.** Each person draws all seven features, and every option is a marked
+trait ("a very prominent hooked nose", "noticeably protruding ears"); none is ordinary, and two are called out
+as what anyone notices first. Most real people have unremarkable noses, eyes and ears, so a gallery where
+everyone has seven striking features isn't realistic, and it may push faces towards the caricatures that match
+each other. That mild wording is needed was only seen in a few test renders; no variant above measures it. To
+test on the same 8 people: mild wording, a share of "ordinary" options per feature, and calling out only the
+two features while leaving the rest out. Identity-first anchors
+([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8) get their spread without any
+feature list, so if they replace text-only anchors the list may not be needed at all.
+
 **How far from real faces, and is it the ancestry label?** Checked 2026-09-27 on the 12 Northern European men of
 the first [face gate](#face-gate) run, first attempts (before the gate), against FairFace (real photos, the face
 pool's ArcFace templates):
