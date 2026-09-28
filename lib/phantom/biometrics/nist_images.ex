@@ -6,9 +6,12 @@ defmodule Phantom.Biometrics.NistImages do
     * Prints and palms are 8-bit grey PNG at 500 ppi. As `"png"` they go in
       byte for byte (CGA `PNG`); as `"wsq"` they're compressed with NIST's
       `cwsq` at 0.75 bits per pixel, about 15:1 (CGA `WSQ20`).
-    * Faces go in as PNG in either case: Type-10 doesn't allow WSQ. Faces
-      with an alpha channel (the face model's output is RGBA) are flattened
-      onto white first, since Type-10 has no colour space with alpha.
+    * Faces go in as PNG (`"png"`) or baseline JPEG (`"jpeg"`, CGA `JPEGB`,
+      for the Unify target); Type-10 doesn't allow WSQ. Faces with an alpha
+      channel (the face model's output is RGBA) are flattened onto white
+      first, since Type-10 has no colour space with alpha.
+    * A print can be cut to an area first (`{left, top, width, height}`),
+      for the Unify target's split thumbs and palms.
 
   `cwsq` is built by `python_biometrics/setup.sh` into
   `python_biometrics/tools/nbis/bin`; `NBIS_BIN` points elsewhere, as for
@@ -18,21 +21,36 @@ defmodule Phantom.Biometrics.NistImages do
   alias Vix.Vips.{Image, Operation}
 
   @wsq_bitrate "0.75"
+  @jpeg_quality 90
 
   @doc "True when `cwsq` is installed, so prints can be exported as WSQ."
   def wsq_available?, do: File.exists?(tool("cwsq"))
 
   @doc """
   A print or palm as `%{data:, width:, height:, ppi:, cga:}`, from its stored
-  PNG. `compression` is `"png"` or `"wsq"`.
+  PNG. `compression` is `"png"` or `"wsq"`; `area`, if given, is the part to
+  keep, `{left, top, width, height}` in pixels.
   """
-  def print(png, %{width: width, height: height}, ppi, "png") do
+  def print(png, image, ppi, compression, area \\ nil)
+
+  def print(png, %{width: width, height: height}, ppi, "png", nil) do
     {:ok, %{data: png, width: width, height: height, ppi: ppi, cga: "PNG"}}
   end
 
-  def print(png, _image, ppi, "wsq") do
+  def print(png, _image, ppi, "png", area) do
     with {:ok, image} <- decode(png),
          {:ok, grey} <- grey(image),
+         {:ok, part} <- crop(grey, area),
+         {:ok, data} <- Image.write_to_buffer(part, ".png") do
+      {:ok,
+       %{data: data, width: Image.width(part), height: Image.height(part), ppi: ppi, cga: "PNG"}}
+    end
+  end
+
+  def print(png, _image, ppi, "wsq", area) do
+    with {:ok, image} <- decode(png),
+         {:ok, whole} <- grey(image),
+         {:ok, grey} <- crop(whole, area),
          {:ok, raw} <- Image.write_to_binary(grey),
          {:ok, wsq} <- cwsq(raw, Image.width(grey), Image.height(grey), ppi) do
       {:ok,
@@ -41,10 +59,32 @@ defmodule Phantom.Biometrics.NistImages do
   end
 
   @doc """
-  A face as `%{data:, width:, height:, cga:, csp:}`: the stored PNG as it is
-  when it has no alpha, otherwise flattened onto white and re-encoded.
+  A face as `%{data:, width:, height:, cga:, csp:}`. As `"png"`, the stored
+  PNG as it is when it has no alpha, otherwise flattened onto white and
+  re-encoded. As `"jpeg"`, flattened and encoded as baseline JPEG, cut to
+  `area` (`{left, top, width, height}`) first if given.
   """
-  def face(png, %{width: width, height: height}) do
+  def face(png, image, format \\ "png", area \\ nil)
+
+  def face(png, _image, "jpeg", area) do
+    with {:ok, image} <- decode(png),
+         {:ok, image} <- srgb(image),
+         {:ok, flat} <- flatten_alpha(image, [255.0, 255.0, 255.0]),
+         {:ok, part} <- crop(flat, area),
+         {:ok, data} <-
+           Image.write_to_buffer(part, ".jpg[Q=#{@jpeg_quality},strip,interlace=false]") do
+      {:ok,
+       %{
+         data: data,
+         width: Image.width(part),
+         height: Image.height(part),
+         cga: "JPEGB",
+         csp: "SRGB"
+       }}
+    end
+  end
+
+  def face(png, %{width: width, height: height}, "png", nil) do
     case png_color_type(png) do
       type when type in [0, 2] ->
         {:ok, face_data(png, width, height, type)}
@@ -109,11 +149,16 @@ defmodule Phantom.Biometrics.NistImages do
     end
   end
 
-  defp flatten_alpha(image) do
+  defp flatten_alpha(image, background \\ [255.0]) do
     if Image.has_alpha?(image),
-      do: Operation.flatten(image, background: [255.0]),
+      do: Operation.flatten(image, background: background),
       else: {:ok, image}
   end
+
+  defp crop(image, nil), do: {:ok, image}
+
+  defp crop(image, {left, top, width, height}),
+    do: Operation.extract_area(image, left, top, width, height)
 
   defp one_band(image) do
     if Image.bands(image) == 1,

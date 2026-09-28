@@ -80,6 +80,19 @@ if config_env() != :test do
   config :phantom, Phantom.Biometrics.Shares,
     link_days: String.to_integer(System.get_env("PHANTOM_S3_LINK_DAYS", "7")),
     keep_days: String.to_integer(System.get_env("PHANTOM_S3_KEEP_DAYS", "14"))
+
+  # The NIST export's Unify 5.2 target: values from the project ICD (see
+  # Phantom.Biometrics.Unify for what each sets). Unset ones keep placeholders.
+  config :phantom, Phantom.Biometrics.Unify,
+    tot_enrol: System.get_env("UNIFY_TOT_ENROL"),
+    tot_search: System.get_env("UNIFY_TOT_SEARCH"),
+    dai: System.get_env("UNIFY_DAI"),
+    ori: System.get_env("UNIFY_ORI"),
+    domain: System.get_env("UNIFY_DOMAIN"),
+    domain_version: System.get_env("UNIFY_DOMAIN_VERSION"),
+    version: System.get_env("UNIFY_VERSION"),
+    face_sap: System.get_env("UNIFY_FACE_SAP"),
+    capture: System.get_env("UNIFY_CAPTURE")
 end
 
 if config_env() == :dev do

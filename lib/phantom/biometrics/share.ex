@@ -5,7 +5,7 @@ defmodule Phantom.Biometrics.Share do
 
   `kind` is `:zip` (`Phantom.Biometrics.Export`, `options` `include`) or
   `:nist` (`Phantom.Biometrics.NistExport`, `options` `content`,
-  `compression` and `search`). A share is `:queued`, `:uploading`, `:ready`
+  `compression`, `target` and `search`). A share is `:queued`, `:uploading`, `:ready`
   (with `url` until `link_expires_at`) or `:failed` (with `error`). The file
   is deleted from the bucket at `expires_at` by the bucket's lifecycle rule.
   """

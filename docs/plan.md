@@ -15,7 +15,8 @@ fingerprints and palms, exported as ZIP or ANSI/NIST-ITL. What exists today is d
 | [`synthetic-biometrics-plan.md`](synthetic-biometrics-plan.md) | The original plan: `/biometrics`, storage, faces, prints, palms, packaging | Built, except the S3 storage backend (local only) and the NFIQ 2 / OFIQ quality scores |
 | [`synthetic-biometrics.md`](synthetic-biometrics.md) | How it works today, prompt design, face diversity and the face gate, known issues | Reference, kept current |
 | [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) | Realistic prints: verification, IMPOSE, diffusion rendering | Phases 0, 1 and a no-training 2a done; 2b onwards open |
-| [`nist-export-plan.md`](nist-export-plan.md) | ANSI/NIST-ITL `.an2` export | Phase 1 built; next steps in §6 |
+| [`nist-export-plan.md`](nist-export-plan.md) | ANSI/NIST-ITL `.an2` export, and its Unify 5.2 target (§7) | Phase 1 built; Unify target built, awaiting the ICD; next steps in §6 |
+| [`phantom_an2_unify_import.md`](phantom_an2_unify_import.md) | What Unify 5.2 needs from the `.an2` files, with a checklist | Blocking items done; ICD items open |
 | [`s3-export-plan.md`](s3-export-plan.md) | Sharing exports through Cloudflare R2 | Phase 1 built, waiting on the R2 account |
 | [`image-resolution.md`](image-resolution.md) | What resolution faces and prints should have | Research done, its recommendations built |
 | [`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) | Making faces as unlike each other as real strangers: pool references (failed), identity-first anchors (§8) | Experimenting |
@@ -29,6 +30,12 @@ fingerprints and palms, exported as ZIP or ANSI/NIST-ITL. What exists today is d
   Arc2Face identities, cleaned by a Qwen edit and matched to the subject by apparent age, as the anchor's only
   reference: 24 men about as far apart as real strangers (median 0.08, max 0.30), realistic, keeping a median
   0.64 of their identity. Next: women and other ancestries, then profiles and probes.
+
+- **Unify 5.2 support** (branch `abis_support`, [`nist-export-plan.md`](nist-export-plan.md) §7). The NIST
+  export has a Unify target: WSQ prints, JPEG faces, thumbs and full palms split into positions Unify takes, ICD
+  values as `UNIFY_*` settings. **Blocked, 2026-09-28:** the ICD questions can't be answered yet, so TOT, ORI,
+  DAI, DOM, TCN format and Type-2 fields stay placeholders, and no file has been loaded into Unify. Prints are
+  declared inked (IMP 3, 2, 11) until the ICD says otherwise.
 
 ## Next
 
@@ -59,11 +66,13 @@ In rough order within each area; nothing is scheduled across areas yet.
 
 **Export and sharing**
 
-1. Load an exported `.an2` into abis_next ([`nist-export-plan.md`](nist-export-plan.md) §5).
-2. Whole runs as one archive, ZIP and NIST, and a `mix` task for it (NIST §6.1, S3 phase 2).
-3. Prints as search transactions, Type-9 ground-truth minutiae, faces as JPEG (NIST §6.2, 6.4–6.6).
-4. INTERPOL INT-I v6 (XML), which also needs mugshots that genuinely meet SAP 30 or 40 (NIST §6.3).
-5. Once R2 is set up: share from the page, open a link off the tailnet, check the 14-day expiry
+1. Unify: fill in the ICD's values, the TCN format and Type-2 fields, and load a file into a Unify test
+   instance ([`nist-export-plan.md`](nist-export-plan.md) §7).
+2. Load an exported `.an2` into abis_next ([`nist-export-plan.md`](nist-export-plan.md) §5).
+3. Whole runs as one archive, ZIP and NIST, and a `mix` task for it (NIST §6.1, S3 phase 2).
+4. Prints as search transactions, Type-9 ground-truth minutiae, faces as JPEG (NIST §6.2, 6.4–6.6).
+5. INTERPOL INT-I v6 (XML), which also needs mugshots that genuinely meet SAP 30 or 40 (NIST §6.3).
+6. Once R2 is set up: share from the page, open a link off the tailnet, check the 14-day expiry
    ([`s3-export-plan.md`](s3-export-plan.md) §6); then a **Delete now** button.
 
 **Later**
@@ -78,6 +87,9 @@ In rough order within each area; nothing is scheduled across areas yet.
 - **Fingerprint training data:** is NIST SD302 (with SD 1.5) acceptable, which acquisition styles matter, and
   should we request MSU GenPrint ([`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) §10).
 - **Latent prints** in scope or not (same place).
+- **Unify ICD** (not available yet, 2026-09-28): TOT, calling system and register, Type-2 fields, DOM and VER,
+  ORIs and TCN format, WSQ or JPEG 2000, whether control thumbs and upper/lower palms are accepted
+  ([`phantom_an2_unify_import.md`](phantom_an2_unify_import.md) §8), and ink or live-scan capture type.
 - **Licences:** Qwen-Image-2.1 for this use; Arc2Face was trained on WebFace42M, a research-only dataset, which
   matters if identity-first anchors go into the app.
 
@@ -115,3 +127,5 @@ Answered: INTERPOL is the target format (2026-09-25), 500 ppi is enough (2026-09
   re-rendering missing images and adding shots to finished runs; ZIP download per person.
 - 2026-09-25: ANSI/NIST-ITL export (Traditional encoding, PNG or WSQ), UUIDv7 image ids, WebP previews.
 - 2026-09-25: exports shared through a private S3 bucket with presigned links; sharing over Tailscale.
+- 2026-09-28: a Unify 5.2 target for the NIST export (WSQ, JPEG faces, split thumbs and palms, ICD settings),
+  on branch `abis_support`.

@@ -270,6 +270,61 @@ defmodule Phantom.Biometrics.NistExportTest do
     end
 
     @tag @wsq
+    test "Unify target: WSQ and JPEG, split thumbs and palms, no 14.901" do
+      run =
+        create_run(
+          subjects: 1,
+          shots: ["mugshot_left_profile", "rolled_02", "slaps", "palms"]
+        )
+
+      {:ok, subject} = Biometrics.get_subject(run, "subject_001")
+
+      for image <- subject.images do
+        store_real_png(subject, image.shot, if(image.modality == :face, do: 4, else: 1))
+      end
+
+      {:ok, export} = Biometrics.nist_export(run, "subject_001", %{target: "unify"})
+      assert %{target: "unify", compression: "wsq"} = export
+      [enrol] = export.transactions
+      [type1, type2 | records] = decode(export, enrol)
+
+      # Faces by pose (10.020), prints and palms by position (.013).
+      assert Enum.map(records, &{&1.type, &1.fields[if(&1.type == 10, do: 20, else: 13)]}) == [
+               {10, "F"},
+               {10, "L"},
+               {14, "2"},
+               {14, "13"},
+               {14, "14"},
+               {14, "11"},
+               {14, "12"},
+               {15, "26"},
+               {15, "25"},
+               {15, "22"},
+               {15, "28"},
+               {15, "27"},
+               {15, "24"}
+             ]
+
+      assert {:ok, cnt} = Type1.decode_cnt(type1.fields[3])
+      assert cnt == [{2, 0} | Enum.map(Enum.with_index(records, 1), fn {r, i} -> {r.type, i} end)]
+      assert %{4 => "ENROL", 7 => "PHANTOM"} = type1.fields
+      assert %{5 => "ENROL"} = type2.fields
+
+      [frontal, _profile, rolled, slap, _slap14, thumb | _] = records
+      # 960 × 1280, cut to 4:5 from the top.
+      assert %{11 => "JPEGB", 12 => "SRGB", 13 => "30", 6 => "960"} = frontal.fields
+      assert frontal.fields[7] == "1200"
+      assert <<0xFF, 0xD8, _::binary>> = frontal.fields[999]
+
+      assert %{3 => "3", 11 => "WSQ20"} = rolled.fields
+      assert %{3 => "2"} = slap.fields
+      # A plain thumb is at most 1.0 × 2.0 in.
+      assert %{3 => "2", 6 => "500", 7 => "1000"} = thumb.fields
+      assert Enum.all?(records, &(not Map.has_key?(&1.fields, 901)))
+      assert Enum.all?(Enum.filter(records, &(&1.type == 15)), &(&1.fields[3] == "11"))
+    end
+
+    @tag @wsq
     @tag :tmp_dir
     test "NBIS an2ktool reads every record", %{name: name, tmp_dir: tmp_dir} do
       {:ok, export} = Biometrics.nist_export(name, "subject_001", %{search: ["probe_aged"]})
