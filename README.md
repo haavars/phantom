@@ -77,6 +77,8 @@ added as search transactions; prints are PNG or WSQ (WSQ needs `python_biometric
 The output is synthetic test data only; don't use it as evidence of matching accuracy or send it to live
 systems.
 
+What's done, in progress and next, with links to each plan: [docs/plan.md](docs/plan.md).
+
 More detail: [docs/synthetic-biometrics.md](docs/synthetic-biometrics.md). The wider plan is in
 [docs/synthetic-biometrics-plan.md](docs/synthetic-biometrics-plan.md), the fingerprint realism work in
 [docs/realistic-fingerprints-plan.md](docs/realistic-fingerprints-plan.md), conditioning faces on open datasets in

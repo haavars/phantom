@@ -1,6 +1,6 @@
 """Step 4: render anchors with Qwen, each with its identity's picked Arc2Face face as the only reference.
 
-    python qwen_anchors.py RUN SUBJECTS_JSON [--frame mugshot|close] [--faces DIR] [--out NAME]
+    python qwen_anchors.py RUN SUBJECTS_JSON [--frame mugshot|close] [--faces DIR] [--assign FILE] [--out NAME]
 
 Identity i gets subject i's attributes (age, skin, eyes, hair, beard, clothing) in an edit prompt: keep the
 face, change the rest, booking setup. No feature list.
@@ -10,6 +10,7 @@ face, change the rest, booking setup. No feature list.
 placed so its eyes sit where they do in text-only anchors.
 
 --faces DIR takes the face from RUN/DIR/clean_XX.png (clean_references.py) instead of the picked Arc2Face one.
+--assign FILE ({subject: identity}, match_ages.py) gives subject i another identity than i.
 
 Needs the Qwen service on :8000 (mix phx.server). Writes RUN/<out>/anchor_XX.png and reference_XX.png.
 """
@@ -94,8 +95,10 @@ if __name__ == "__main__":
     p.add_argument("subjects")
     p.add_argument("--frame", choices=["mugshot", "close"], default="mugshot")
     p.add_argument("--faces", default=None)
+    p.add_argument("--assign", default=None)
     p.add_argument("--out", default=None)
     args = p.parse_args()
+    assign = json.load(open(args.assign)) if args.assign else {}
     out = args.out or f"anchors_{args.frame}" + (f"_{args.faces}" if args.faces else "")
     subjects = json.load(open(args.subjects))
     picks = json.load(open(run_dir(args.run, "picks.json")))
@@ -106,8 +109,9 @@ if __name__ == "__main__":
         path = run_dir(args.run, out, f"anchor_{i:02d}.png")
         if os.path.exists(path):
             continue
-        a2f = Image.open(run_dir(args.run, args.faces, f"clean_{i:02d}.png") if args.faces else
-                         run_dir(args.run, f"a2f_{i:02d}_{picks[str(i)]['sample']}.png"))
+        k = assign.get(str(i), i)
+        a2f = Image.open(run_dir(args.run, args.faces, f"clean_{k:02d}.png") if args.faces else
+                         run_dir(args.run, f"a2f_{k:02d}_{picks[str(k)]['sample']}.png"))
         ref = mugshot_reference(a2f, face, target) if args.frame == "mugshot" else a2f.convert("RGB")
         ref.save(run_dir(args.run, out, f"reference_{i:02d}.png"))
         t = time.time()

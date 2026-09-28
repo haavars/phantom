@@ -468,6 +468,16 @@ faces from open datasets didn't help: Qwen copies one reference instead of blend
 ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md), Phase 1). So the run keeps its people
 apart with a gate instead.
 
+**To look into: every face is unusual.** Each person draws all seven features, and every option is a marked
+trait ("a very prominent hooked nose", "noticeably protruding ears"); none is ordinary, and two are called out
+as what anyone notices first. Most real people have unremarkable noses, eyes and ears, so a gallery where
+everyone has seven striking features isn't realistic, and it may push faces towards the caricatures that match
+each other. That mild wording is needed was only seen in a few test renders; no variant above measures it. To
+test on the same 8 people: mild wording, a share of "ordinary" options per feature, and calling out only the
+two features while leaving the rest out. Identity-first anchors
+([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8) get their spread without any
+feature list, so if they replace text-only anchors the list may not be needed at all.
+
 **How far from real faces, and is it the ancestry label?** Checked 2026-09-27 on the 12 Northern European men of
 the first [face gate](#face-gate) run, first attempts (before the gate), against FairFace (real photos, the face
 pool's ArcFace templates):
@@ -752,22 +762,24 @@ draining the queue in the test process) and store images under `tmp/test/biometr
 
 ## Known issues and next steps
 
+The overall plan and its status: [`plan.md`](plan.md).
+
 - **Faces**
   - Check the v4–v7 prompt changes on a larger set of renders: healed scars, probe pose and expression, the
     aged probe across ages, and probe outfits.
   - Record the model and service versions (Qwen checkpoint, torch/diffusers, ridgegen) with each image, so a
     re-render can be checked against its stored SHA-256.
   - The ICAO crop should be tighter: chin to crown should fill about 75% of the image height.
-  - Render mugshots at 3:4 (960×1280) so they can meet ANSI/NIST mugshot level 40, which INTERPOL's format
-    needs (level 30 or higher); see [`image-resolution.md`](image-resolution.md).
   - Build ("heavy-set", "slim") is mostly ignored. This matters little for a head-and-shoulders image.
   - Faces are still more alike than real strangers: a mean ArcFace similarity of about 0.17 between different
     people with `faces-v13`, against 0 to 0.1 for real photos ([Face diversity](#face-diversity)). The
     [face gate](#face-gate) cuts off the look-alikes, not the mean. Still to do with the same templates:
     - reject probes that no longer match their anchor
     - check against the ABIS matcher too, if its API is available
-  - Conditioning anchors on real faces from open datasets failed its Phase 1 test (Qwen copies one face):
-    [`face-source-conditioning-plan.md`](face-source-conditioning-plan.md).
+  - Conditioning anchors on real faces from open datasets failed its Phase 1 test (Qwen copies one face).
+    Identity-first anchors (Arc2Face identities as Qwen's reference) are as far apart as real strangers in
+    experiments, not yet in the app: [`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8.
+  - Every face draws seven unusual features; see the note under [Face diversity](#face-diversity).
 - **Friction ridges**
   - Next steps of [`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md): acquisition styles
     (livescan, dry, low quality) need a conditioned model; the diffusion model only knows inked rolled prints.

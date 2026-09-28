@@ -3,7 +3,8 @@
 Status: Phase 1 done 2026-09-25, go criterion not met (§7). The run diversity gate from §8 is built for
 text-only anchors (2026-09-27, [Face gate](synthetic-biometrics.md#face-gate)); the pool (`face-pool.md`) stays
 for a later attempt. An identity-first pilot (Arc2Face identities as Qwen's reference, §8) gave anchors about as
-far apart as real strangers.
+far apart as real strangers; cleaning the reference with a Qwen edit and matching the identity to the
+subject's age keep the identity in the anchor (§8, 2026-09-28).
 
 ## 1. Goal and idea
 
@@ -358,10 +359,40 @@ Worth doing whatever Phase 1 shows:
     Probably the age change rather than the cleaning; not tested yet.
   - Costs one more Qwen render per subject (about 44 s on the 4090).
 
-  So cleaning is the step to keep. Next to test: whether a large age gap between reference and subject is what
-  loses the identity (and if so, match the identity's apparent age to the subject's, or age the reference in
-  the cleaning edit); then women and other groups, and the profiles and probes conditioned on these anchors.
-  Arc2Face's pose ControlNet and expression adapter are the alternative to the cleaning edit, not needed so far.
+  So cleaning is the step to keep. Arc2Face's pose ControlNet and expression adapter are the alternative to the
+  cleaning edit, not needed so far.
+
+  *Fourth round, 2026-09-28: the age gap.* An anchor made much older or younger than its reference keeps less of
+  it: across the 24, the gap between the subject's age and the cleaned face's apparent age (InsightFace)
+  correlates −0.48 with how much of that face the anchor keeps. Two ways to close the gap, on the same cleaned
+  faces, prompts and seeds:
+
+  - **(a) Match ages:** give each subject the identity whose cleaned face looks closest to its age (Hungarian
+    assignment over the 24; `match_ages.py`). The gap drops from a median of 17 years (max 45) to 10 (max 22).
+  - **(b) Age in the cleaning edit:** the cleaning edit also makes the man the subject's age, so the anchor
+    needn't.
+
+  | 24 anchors | Cleaned | (a) age-matched | (b) aged when cleaned |
+  |---|---|---|---|
+  | Between people, median / p90 / max | 0.07 / 0.17 / 0.29 | 0.08 / 0.18 / 0.30 | 0.08 / 0.19 / 0.34 |
+  | Identity kept, median (min) | 0.59 (0.21) | **0.64 (0.36)** | 0.60 (0.27) |
+  | Anchors keeping less than 0.4 | 2 | **1** | 3 |
+  | Kept from the reference sent, median (min) | 0.81 (0.38) | 0.80 (0.59) | 0.82 (0.66) |
+  | Cleaned face kept from Arc2Face, median (min) | 0.84 (0.56) | 0.84 (0.56) | 0.77 (0.37) |
+  | Pass the pool's rules: cleaned faces / anchors | 23 / 23 | 23 / 24 | 19 / 22 |
+  | Nearest FairFace face, median / max | 0.26 / 0.34 | 0.27 / 0.34 | 0.26 / 0.33 |
+
+  - **Matching ages works.** The anchor step no longer loses the identity (worst 0.59 of the face sent, against
+    0.38), and the spread and leakage don't change. The one anchor below 0.4 (0.36) got identity 5, whose
+    cleaning had already kept only 0.64. By eye the 24 are realistic and plainly different people.
+  - **Ageing in the cleaning edit only moves the loss.** The anchor keeps its reference well, but the aged
+    cleaning keeps less of the Arc2Face face, fails the rules more often, and the total is no better.
+  - With 24 identities for 24 subjects the ages can't all match. In the app, sample more identities than
+    subjects and pick by age, which should close most of the gap.
+
+  So the recipe so far: sample identities, render with Arc2Face, clean with a Qwen edit, pick the identity by
+  apparent age, then the anchor with the cleaned face as its only reference. Next: women and other groups, and
+  the profiles and probes conditioned on these anchors.
 
 ## 9. Open questions
 
