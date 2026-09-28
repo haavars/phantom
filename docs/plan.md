@@ -26,10 +26,9 @@ fingerprints and palms, exported as ZIP or ANSI/NIST-ITL. What exists today is d
 
 - **Identity-first anchors** ([`face-source-conditioning-plan.md`](face-source-conditioning-plan.md) §8,
   scripts in [`python_inference/experiments/identity_first/`](../python_inference/experiments/identity_first/README.md)).
-  Arc2Face identities, cleaned by a Qwen edit, as the anchor's only reference give 24 men about as far apart as
-  real strangers (median 0.07, max 0.29). Running now: whether the age gap between reference and subject is
-  what loses the identity for the two weak anchors, tested by (a) matching identities to subjects by apparent
-  age and (b) setting the subject's age in the cleaning edit.
+  Arc2Face identities, cleaned by a Qwen edit and matched to the subject by apparent age, as the anchor's only
+  reference: 24 men about as far apart as real strangers (median 0.08, max 0.30), realistic, keeping a median
+  0.64 of their identity. Next: women and other ancestries, then profiles and probes.
 
 ## Next
 
@@ -37,8 +36,8 @@ In rough order within each area; nothing is scheduled across areas yet.
 
 **Faces**
 
-1. Finish the identity-first experiment: the age test, then women and other ancestries, then profiles and
-   probes conditioned on these anchors. If it holds, plan how it goes into the app (Arc2Face as a service,
+1. Finish the identity-first experiment: women and other ancestries, then profiles and probes conditioned on
+   these anchors. If it holds, plan how it goes into the app (Arc2Face as a service,
    identity sampling per run, the leakage check against the pool) as a run option next to text-only.
 2. **Look into the facial feature list** ([Face diversity](synthetic-biometrics.md#face-diversity)): every
    person draws seven strongly worded, unusual features, which isn't realistic, and that mild wording doesn't
@@ -101,6 +100,8 @@ Answered: INTERPOL is the target format (2026-09-25), 500 ppi is enough (2026-09
 - 2026-09-27: identity-first pilot (12 men), then 24 men with mugshot framing.
 - 2026-09-28: cleaning the references with a Qwen edit first: anchors from flawed references keep more of
   their identity.
+- 2026-09-28: matching identities to subjects by apparent age keeps the identity through the anchor; ageing
+  in the cleaning edit doesn't.
 
 **Friction ridges**
 

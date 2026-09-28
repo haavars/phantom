@@ -1,10 +1,12 @@
 """Step 3b: clean each picked Arc2Face face with a Qwen edit before it becomes the anchor's reference.
 
-    python clean_references.py RUN N [--out cleaned]
+    python clean_references.py RUN N [--out cleaned] [--ages SUBJECTS_JSON]
 
 Only what the face pool's rules reject changes: head turned or tilted, grin or open mouth, glasses or
 sunglasses, hat or cap, colour cast. The same man, age, hair and skin, as a frontal, neutral close-up on
 mid-grey. Then qwen_anchors.py RUN SUBJECTS --faces cleaned renders the anchors from these.
+
+--ages SUBJECTS_JSON also makes identity i subject i's age in the same edit, so the anchor needn't change it.
 
 Measures what the edit keeps (buffalo_l, cleaned against the Arc2Face face) and screens the cleaned faces with
 the pool's rules. Writes RUN/<out>/clean_XX.png, screen.csv and result.json.
@@ -29,12 +31,20 @@ PROMPT = ("Passport-style photograph of the man in the reference image, the same
           "background. Even, diffuse, colour-neutral front lighting with no harsh shadows. Photorealistic, "
           "unretouched digital photograph with natural skin texture and sharp focus.")
 
+
+def aged(age):
+    return (PROMPT.replace("jaw, ears, age, skin tone", "jaw, ears, skin tone")
+            .replace("Changes only: he", f"Changes only: he is now {age} years old and looks it; he"))
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("run")
     p.add_argument("n", type=int)
     p.add_argument("--out", default="cleaned")
+    p.add_argument("--ages", default=None)
     args = p.parse_args()
+    ages = [s["age"] for s in json.load(open(args.ages))] if args.ages else None
     picks = json.load(open(run_dir(args.run, "picks.json")))
     client = httpx.Client(timeout=600)
     faces, cleaned = [], []
@@ -46,7 +56,8 @@ if __name__ == "__main__":
         if os.path.exists(path):
             continue
         t = time.time()
-        r = client.post(f"{QWEN}/generate", data={"prompt": PROMPT, "width": 1024, "height": 1024, "steps": 40,
+        prompt = aged(ages[i - 1]) if ages else PROMPT
+        r = client.post(f"{QWEN}/generate", data={"prompt": prompt, "width": 1024, "height": 1024, "steps": 40,
                                                   "seed": 2000 + i},
                         files=[("images", ("reference.png", png_bytes(Image.open(face).convert("RGB")),
                                            "image/png"))])
