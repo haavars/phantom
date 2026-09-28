@@ -33,8 +33,9 @@ fingerprints and palms, exported as ZIP or ANSI/NIST-ITL. What exists today is d
 
 - **Unify 5.2 support** (branch `abis_support`, [`nist-export-plan.md`](nist-export-plan.md) §7). The NIST
   export has a Unify target: WSQ prints, JPEG faces, thumbs and full palms split into positions Unify takes, ICD
-  values as `UNIFY_*` settings. Waiting on the ICD for TOT, ORI, DAI, DOM, TCN format and Type-2 fields, then a
-  test load into Unify.
+  values as `UNIFY_*` settings. **Blocked, 2026-09-28:** the ICD questions can't be answered yet, so TOT, ORI,
+  DAI, DOM, TCN format and Type-2 fields stay placeholders, and no file has been loaded into Unify. Prints are
+  declared inked (IMP 3, 2, 11) until the ICD says otherwise.
 
 ## Next
 
@@ -86,9 +87,9 @@ In rough order within each area; nothing is scheduled across areas yet.
 - **Fingerprint training data:** is NIST SD302 (with SD 1.5) acceptable, which acquisition styles matter, and
   should we request MSU GenPrint ([`realistic-fingerprints-plan.md`](realistic-fingerprints-plan.md) §10).
 - **Latent prints** in scope or not (same place).
-- **Unify ICD:** TOT, calling system and register, Type-2 fields, DOM and VER, ORIs and TCN format, WSQ or
-  JPEG 2000, and whether control thumbs and upper/lower palms are accepted
-  ([`phantom_an2_unify_import.md`](phantom_an2_unify_import.md) §8).
+- **Unify ICD** (not available yet, 2026-09-28): TOT, calling system and register, Type-2 fields, DOM and VER,
+  ORIs and TCN format, WSQ or JPEG 2000, whether control thumbs and upper/lower palms are accepted
+  ([`phantom_an2_unify_import.md`](phantom_an2_unify_import.md) §8), and ink or live-scan capture type.
 - **Licences:** Qwen-Image-2.1 for this use; Arc2Face was trained on WebFace42M, a research-only dataset, which
   matters if identity-first anchors go into the app.
 
@@ -126,3 +127,5 @@ Answered: INTERPOL is the target format (2026-09-25), 500 ppi is enough (2026-09
   re-rendering missing images and adding shots to finished runs; ZIP download per person.
 - 2026-09-25: ANSI/NIST-ITL export (Traditional encoding, PNG or WSQ), UUIDv7 image ids, WebP previews.
 - 2026-09-25: exports shared through a private S3 bucket with presigned links; sharing over Tailscale.
+- 2026-09-28: a Unify 5.2 target for the NIST export (WSQ, JPEG faces, split thumbs and palms, ICD settings),
+  on branch `abis_support`.
